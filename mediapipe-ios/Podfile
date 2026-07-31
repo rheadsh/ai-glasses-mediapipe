@@ -1,0 +1,19 @@
+platform :ios, '17.0'
+
+project 'mediapipe-ios.xcodeproj'
+
+target 'mediapipe-ios' do
+  use_frameworks!
+
+  # Official MediaPipe Tasks distribution for iOS.
+  pod 'MediaPipeTasksVision', '0.10.35'
+
+  # Tests run inside the app host. Inherit headers/search paths but do not
+  # link MediaPipe a second time: its global calculator registry is process-wide.
+  target 'mediapipe-iosTests' do
+    inherit! :search_paths
+  end
+end
+
+target 'mediapipe-iosUITests' do
+end
