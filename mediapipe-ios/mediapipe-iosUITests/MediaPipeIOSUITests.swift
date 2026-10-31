@@ -9,6 +9,7 @@
 import MWDATMockDeviceTestClient
 import XCTest
 
+@MainActor
 final class MediaPipeIOSUITests: XCTestCase {
   var portFilePath: String {
     NSTemporaryDirectory() + "mwdat_test_server_port.txt"
@@ -19,7 +20,8 @@ final class MediaPipeIOSUITests: XCTestCase {
   private var pairedDeviceId: String!
   // swiftlint:enable implicitly_unwrapped_optional
 
-  override func setUpWithError() throws {
+  override func setUp() async throws {
+    try await super.setUp()
     continueAfterFailure = false
 
     // Remove any stale port file from a previous run so readPort() waits
@@ -32,14 +34,17 @@ final class MediaPipeIOSUITests: XCTestCase {
 
     // Initialize the client *after* launch so the server has time to write the port file.
     mockClient = MockDeviceTestClient(portFilePath: portFilePath)
-    XCTAssertTrue(mockClient.waitForServer(timeout: 10), "Test server should be running")
+    let commandSucceeded = await mockClient.waitForServer(timeout: 10)
+    XCTAssertTrue(commandSucceeded, "Test server should be running")
   }
 
-  override func tearDownWithError() throws {
+  override func tearDown() async throws {
+    defer { mockClient = nil }
     if pairedDeviceId != nil {
-      mockClient.unpairDevice(deviceId: pairedDeviceId)
+      await mockClient.unpairDevice(deviceId: pairedDeviceId)
       pairedDeviceId = nil
     }
+    try await super.tearDown()
   }
 
   // MARK: - Helpers
@@ -68,15 +73,15 @@ final class MediaPipeIOSUITests: XCTestCase {
   }
 
   /// Pairs a device with default camera resources via the test server.
-  private func pairDeviceWithCameraResources() {
+  private func pairDeviceWithCameraResources() async {
     registerViaUI()
 
-    let deviceId = mockClient.pairDevice()
+    let deviceId = await mockClient.pairDevice()
     XCTAssertNotNil(deviceId, "pairDevice should return a deviceId")
     pairedDeviceId = deviceId
 
-    mockClient.setCameraFeed(deviceId: pairedDeviceId, resourceName: "plant", ext: "mp4")
-    mockClient.setCapturedImage(deviceId: pairedDeviceId, resourceName: "plant", ext: "png")
+    await mockClient.setCameraFeed(deviceId: pairedDeviceId, resourceName: "plant", ext: "mp4")
+    await mockClient.setCapturedImage(deviceId: pairedDeviceId, resourceName: "plant", ext: "png")
   }
 
   /// Waits for the "Start streaming" button to exist and be enabled (mock device active).
@@ -122,7 +127,7 @@ final class MediaPipeIOSUITests: XCTestCase {
 
   /// Verifies that launching without pairing a device shows the home screen.
   @MainActor
-  func testLaunchWithoutDeviceShowsHomeScreen() {
+  func testLaunchWithoutDeviceShowsHomeScreen() async {
     let connectButton = app.buttons["Conectar mis gafas"]
     XCTAssertTrue(
       connectButton.waitForExistence(timeout: 10),
@@ -133,32 +138,32 @@ final class MediaPipeIOSUITests: XCTestCase {
   /// Verifies that registering and pairing a device transitions the UI from the home screen
   /// to the stream screen with an active device.
   @MainActor
-  func testRegisterAndPairTransitionsToStreamScreen() {
-    pairDeviceWithCameraResources()
+  func testRegisterAndPairTransitionsToStreamScreen() async {
+    await pairDeviceWithCameraResources()
     waitForStartStreamingEnabled()
   }
 
   /// Verifies that the device state query reflects the correct number of paired devices.
   @MainActor
-  func testDeviceStateReflectsPairedDevices() {
+  func testDeviceStateReflectsPairedDevices() async {
     // Initially no devices paired
-    let state0 = mockClient.getDeviceState()
+    let state0 = await mockClient.getDeviceState()
     XCTAssertNotNil(state0, "getDeviceState should return a response")
     XCTAssertEqual(
       state0?["pairedDeviceCount"] as? Int, 0, "Should have 0 paired devices initially")
 
     // Register and pair a device
-    pairDeviceWithCameraResources()
+    await pairDeviceWithCameraResources()
 
-    let state1 = mockClient.getDeviceState()
+    let state1 = await mockClient.getDeviceState()
     XCTAssertNotNil(state1, "getDeviceState should return a response after pairing")
     XCTAssertEqual(state1?["pairedDeviceCount"] as? Int, 1, "Should have 1 paired device")
 
     // Unpair
-    mockClient.unpairDevice(deviceId: pairedDeviceId)
+    await mockClient.unpairDevice(deviceId: pairedDeviceId)
     pairedDeviceId = nil
 
-    let state2 = mockClient.getDeviceState()
+    let state2 = await mockClient.getDeviceState()
     XCTAssertNotNil(state2, "getDeviceState should return a response after unpairing")
     XCTAssertEqual(
       state2?["pairedDeviceCount"] as? Int, 0, "Should have 0 paired devices after unpairing")
@@ -169,33 +174,36 @@ final class MediaPipeIOSUITests: XCTestCase {
   /// Verifies that doff makes the device inactive (disables streaming button)
   /// and don reactivates it.
   @MainActor
-  func testDoffMakesDeviceInactiveAndDonReactivates() {
-    pairDeviceWithCameraResources()
+  func testDoffMakesDeviceInactiveAndDonReactivates() async {
+    await pairDeviceWithCameraResources()
     waitForStartStreamingEnabled()
 
     // Doff the device → should become inactive
-    mockClient.doff(deviceId: pairedDeviceId)
+    await mockClient.doff(deviceId: pairedDeviceId)
     waitForStartStreamingDisabled()
 
     // Don the device → should become active again
-    mockClient.don(deviceId: pairedDeviceId)
+    await mockClient.don(deviceId: pairedDeviceId)
     waitForStartStreamingEnabled()
   }
 
   /// Verifies that powering off makes the device inactive and powering on
   /// with don reactivates it.
   @MainActor
-  func testPowerCycleAffectsDeviceActivity() {
-    pairDeviceWithCameraResources()
+  func testPowerCycleAffectsDeviceActivity() async {
+    await pairDeviceWithCameraResources()
     waitForStartStreamingEnabled()
 
     // Power off → device becomes inactive
-    XCTAssertTrue(mockClient.powerOff(deviceId: pairedDeviceId), "Power off should succeed")
+    let powerOffSucceeded = await mockClient.powerOff(deviceId: pairedDeviceId)
+    XCTAssertTrue(powerOffSucceeded, "Power off should succeed")
     waitForStartStreamingDisabled()
 
     // Power on + don → device becomes active again
-    XCTAssertTrue(mockClient.powerOn(deviceId: pairedDeviceId), "Power on should succeed")
-    XCTAssertTrue(mockClient.don(deviceId: pairedDeviceId), "Don should succeed")
+    let powerOnSucceeded = await mockClient.powerOn(deviceId: pairedDeviceId)
+    XCTAssertTrue(powerOnSucceeded, "Power on should succeed")
+    let commandSucceeded = await mockClient.don(deviceId: pairedDeviceId)
+    XCTAssertTrue(commandSucceeded, "Don should succeed")
     waitForStartStreamingEnabled()
   }
 
@@ -204,8 +212,8 @@ final class MediaPipeIOSUITests: XCTestCase {
   /// Verifies the complete start → stop streaming flow.
   // TestRail: C1599889064, C1602923640, C1602923646
   @MainActor
-  func testStartAndStopStreaming() {
-    pairDeviceWithCameraResources()
+  func testStartAndStopStreaming() async {
+    await pairDeviceWithCameraResources()
     startStreaming()
 
     // Stop streaming
@@ -223,8 +231,8 @@ final class MediaPipeIOSUITests: XCTestCase {
   /// Verifies photo capture shows a preview and can be dismissed while continuing to stream.
   // TestRail: C1619609872, C1619610952
   @MainActor
-  func testPhotoCaptureAndDismiss() {
-    pairDeviceWithCameraResources()
+  func testPhotoCaptureAndDismiss() async {
+    await pairDeviceWithCameraResources()
     startStreaming()
 
     // Tap the capture button
@@ -260,8 +268,8 @@ final class MediaPipeIOSUITests: XCTestCase {
 
   /// Verifies that the MediaPipe model menu switches the live detector.
   @MainActor
-  func testChangeMediaPipeModel() {
-    pairDeviceWithCameraResources()
+  func testChangeMediaPipeModel() async {
+    await pairDeviceWithCameraResources()
     waitForStartStreamingEnabled()
 
     let modelButton = app.buttons["select_mediapipe_model_button"]
@@ -275,14 +283,14 @@ final class MediaPipeIOSUITests: XCTestCase {
     lite2Option.tap()
 
     let lite2Value = NSPredicate(format: "value == %@", "EfficientDet Lite2")
-    expectation(for: lite2Value, evaluatedWith: modelButton)
-    waitForExpectations(timeout: 10)
+    let modelExpectation = expectation(for: lite2Value, evaluatedWith: modelButton)
+    await fulfillment(of: [modelExpectation], timeout: 10)
   }
 
   /// Verifies that the MediaPipe menu exposes the complete iOS Vision task catalog.
   @MainActor
-  func testChangeMediaPipeVisionTask() {
-    pairDeviceWithCameraResources()
+  func testChangeMediaPipeVisionTask() async {
+    await pairDeviceWithCameraResources()
     waitForStartStreamingEnabled()
 
     let taskButton = app.buttons["select_mediapipe_task_button"]
@@ -297,20 +305,21 @@ final class MediaPipeIOSUITests: XCTestCase {
     holisticOption.tap()
 
     let holisticValue = NSPredicate(format: "value == %@", "Holistic landmark detection")
-    expectation(for: holisticValue, evaluatedWith: taskButton)
-    waitForExpectations(timeout: 10)
+    let taskExpectation = expectation(for: holisticValue, evaluatedWith: taskButton)
+    await fulfillment(of: [taskExpectation], timeout: 10)
 
     XCTAssertFalse(app.otherElements["vision_task_configuration_message"].exists)
   }
 
   /// Verifies that folding the glasses while streaming causes streaming to stop.
   @MainActor
-  func testFoldDuringStreamingStopsStream() {
-    pairDeviceWithCameraResources()
+  func testFoldDuringStreamingStopsStream() async {
+    await pairDeviceWithCameraResources()
     startStreaming()
 
     // Fold the glasses → streaming should stop (hinges closed)
-    XCTAssertTrue(mockClient.fold(deviceId: pairedDeviceId), "Fold command should succeed")
+    let commandSucceeded = await mockClient.fold(deviceId: pairedDeviceId)
+    XCTAssertTrue(commandSucceeded, "Fold command should succeed")
 
     // Fold triggers a hingesClosed error alert — dismiss it so the view hierarchy settles.
     let alertOK = app.alerts.buttons["OK"]

@@ -305,6 +305,7 @@ final class MediaPipeVisionAnalyzer: @unchecked Sendable {
           completion(
             .success(
               VisionAnalysisResult(
+                oscMessages: result.oscMessages,
                 detections: result.detections,
                 landmarkGroups: result.landmarkGroups,
                 maskImage: result.maskImage,
@@ -434,6 +435,10 @@ final class MediaPipeVisionAnalyzer: @unchecked Sendable {
         "\($0.displayName ?? $0.categoryName ?? "Clase") \(Int($0.score * 100))%"
       }.joined(separator: " · ")
       return VisionAnalysisResult(
+        oscMessages: categories.enumerated().map { index, category in
+          OSCMessage(address: "/category/\(index)", arguments: [
+            .string(category.categoryName ?? "unknown"), .float(category.score)])
+        },
         detections: [],
         landmarkGroups: [],
         maskImage: nil,
@@ -446,6 +451,7 @@ final class MediaPipeVisionAnalyzer: @unchecked Sendable {
       let result = try segmenter.segment(image: image)
       let mask = result.confidenceMasks?.first.flatMap { maskImage(from: $0, style: .cyan) }
       return VisionAnalysisResult(
+        oscMessages: segmentationMessages(result.confidenceMasks?.first),
         detections: [], landmarkGroups: [], maskImage: mask,
         summary: mask == nil ? "Sin máscara" : "Persona segmentada",
         resultCount: mask == nil ? 0 : 1, inferenceTimeMilliseconds: 0)
@@ -458,6 +464,9 @@ final class MediaPipeVisionAnalyzer: @unchecked Sendable {
       let mask = result.confidenceMasks?.first.flatMap { maskImage(from: $0, style: .purple) }
       let pointGroup = VisionLandmarkGroup(points: [point], connections: [], style: .orange)
       return VisionAnalysisResult(
+        oscMessages: segmentationMessages(result.confidenceMasks?.first) + [
+          OSCMessage(address: "/selection", arguments: [.float(Float(point.x)), .float(Float(point.y))])
+        ],
         detections: [], landmarkGroups: [pointGroup], maskImage: mask,
         summary: mask == nil
           ? "Toca el objeto a segmentar" : "Segmentación en el punto seleccionado",
@@ -471,6 +480,11 @@ final class MediaPipeVisionAnalyzer: @unchecked Sendable {
         "\($0.categoryName ?? "Gesto") \(Int($0.score * 100))%"
       }
       return VisionAnalysisResult(
+        oscMessages: result.gestures.enumerated().compactMap { index, categories in
+          guard let category = categories.first else { return nil }
+          return OSCMessage(address: "/gesture/\(index)", arguments: [
+            .string(category.categoryName ?? "None"), .float(category.score)])
+        } + handednessMessages(result.handedness),
         detections: [], landmarkGroups: groups, maskImage: nil,
         summary: gestures.isEmpty ? "Sin gestos" : gestures.joined(separator: " · "),
         resultCount: gestures.count, inferenceTimeMilliseconds: 0)
@@ -481,6 +495,7 @@ final class MediaPipeVisionAnalyzer: @unchecked Sendable {
         result.landmarks, connections: HandLandmarker.handConnections, style: .green)
       let hands = result.handedness.compactMap { $0.first?.displayName ?? $0.first?.categoryName }
       return VisionAnalysisResult(
+        oscMessages: handednessMessages(result.handedness),
         detections: [], landmarkGroups: groups, maskImage: nil,
         summary: hands.isEmpty ? "Sin manos" : hands.joined(separator: " · "),
         resultCount: groups.count, inferenceTimeMilliseconds: 0)
@@ -489,7 +504,14 @@ final class MediaPipeVisionAnalyzer: @unchecked Sendable {
       let result = try embedder.embed(image: image)
       let embedding = result.embeddingResult.embeddings.first
       let dimensions = embedding?.floatEmbedding?.count ?? embedding?.quantizedEmbedding?.count ?? 0
+      let values = embedding?.floatEmbedding?.map { $0.floatValue } ?? []
+      var messages = [OSCMessage(address: "/embedding/dimensions", arguments: [.int(Int32(values.count))])]
+      for offset in stride(from: 0, to: values.count, by: 64) {
+        messages.append(OSCMessage(address: "/embedding/values", arguments:
+          [.int(Int32(offset))] + values[offset..<min(offset + 64, values.count)].map { .float($0) }))
+      }
       return VisionAnalysisResult(
+        oscMessages: messages,
         detections: [],
         landmarkGroups: [],
         maskImage: nil,
@@ -534,28 +556,68 @@ final class MediaPipeVisionAnalyzer: @unchecked Sendable {
     case .holisticLandmarker(let landmarker):
       let result = try landmarker.detect(image: image)
       var groups: [VisionLandmarkGroup] = []
+      var groupLabels: [String] = []
       if !result.faceLandmarks.isEmpty {
+        groupLabels.append("face")
         groups.append(group(result.faceLandmarks, connections: [], style: .pink))
       }
       if !result.poseLandmarks.isEmpty {
+        groupLabels.append("pose")
         groups.append(
           group(result.poseLandmarks, connections: PoseLandmarker.poseLandmarks, style: .orange))
       }
       if !result.leftHandLandmarks.isEmpty {
+        groupLabels.append("leftHand")
         groups.append(
           group(result.leftHandLandmarks, connections: HandLandmarker.handConnections, style: .cyan)
         )
       }
       if !result.rightHandLandmarks.isEmpty {
+        groupLabels.append("rightHand")
         groups.append(
           group(
             result.rightHandLandmarks, connections: HandLandmarker.handConnections, style: .green))
       }
       return VisionAnalysisResult(
+        oscMessages: groupLabels.enumerated().map { index, label in
+          OSCMessage(address: "/landmarks/\(index)/label", arguments: [.string(label)])
+        },
         detections: [], landmarkGroups: groups, maskImage: nil,
         summary: groups.isEmpty ? "Sin landmarks" : "Rostro, pose y manos",
         resultCount: groups.count, inferenceTimeMilliseconds: 0)
     }
+  }
+
+  private static func handednessMessages(_ hands: [[ResultCategory]]) -> [OSCMessage] {
+    hands.enumerated().compactMap { index, categories in
+      guard let category = categories.first else { return nil }
+      return OSCMessage(address: "/hand/\(index)/handedness", arguments: [
+        .string(category.categoryName ?? "unknown"), .float(category.score)])
+    }
+  }
+
+  /// Send a 16x16 confidence grid as row messages, independent of the display mask.
+  private static func segmentationMessages(_ mask: Mask?) -> [OSCMessage] {
+    guard let mask, mask.width > 0, mask.height > 0 else {
+      return [OSCMessage(address: "/mask/size", arguments: [.int(0), .int(0)])]
+    }
+    let size = 16
+    let values = mask.float32Data
+    var sum: Float = 0
+    var messages = [OSCMessage(address: "/mask/size", arguments: [.int(16), .int(16)])]
+    for row in 0..<size {
+      var arguments: [OSCArgument] = [.int(Int32(row))]
+      for column in 0..<size {
+        let x = min(mask.width - 1, (2 * column + 1) * mask.width / (2 * size))
+        let y = min(mask.height - 1, (2 * row + 1) * mask.height / (2 * size))
+        let value = max(0, min(1, values[y * mask.width + x]))
+        sum += value
+        arguments.append(.float(value))
+      }
+      messages.append(OSCMessage(address: "/mask/row", arguments: arguments))
+    }
+    messages.append(OSCMessage(address: "/mask/coverage", arguments: [.float(sum / Float(size * size))]))
+    return messages
   }
 
   private static func makeResult(

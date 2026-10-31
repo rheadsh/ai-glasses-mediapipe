@@ -5,7 +5,7 @@ Aplicación iOS en SwiftUI que recibe vídeo en primera persona desde unas Meta 
 ## Qué incluye
 
 - Registro y permisos mediante la app Meta AI.
-- Sesión y stream de cámara con `MWDATCore` y `MWDATCamera` 0.8.0.
+- Sesión y stream de cámara con `MWDATCore` y `MWDATCamera` 1.0.1.
 - Las 11 Vision Tasks on-device de `MediaPipeTasksVision` 0.10.35.
 - Selector en caliente entre:
   - **EfficientDet Lite0**: menor latencia.
@@ -42,7 +42,7 @@ MWDATCamera.VideoFrame
 ## Requisitos
 
 - macOS con Xcode 15 o posterior.
-- iOS 17 o posterior.
+- iOS 17.2 o posterior (requerido por DAT 1.0.1).
 - CocoaPods 1.12.1 o posterior.
 - Para hardware real: app Meta AI, Developer Mode y gafas compatibles.
 - Para simulador: `MWDATMockDevice` incluido en Debug.
@@ -111,6 +111,10 @@ xcodebuild test \
 ```
 
 Las pruebas cubren el stream y la fotografía con `MockDeviceKit`, la geometría del overlay y la inicialización/inferencia real de las 11 tasks, una por una.
+
+## Salida OSC
+
+Las 11 Vision Tasks pueden enviar sus resultados por OSC/UDP a instalaciones interactivas. Usa **Configurar OSC** para indicar IP, puerto y frecuencia, activar el envío y probar el receptor. Consulta [OSC.md](OSC.md) para las rutas, argumentos y ejemplos de configuración.
 
 ## Rendimiento
 

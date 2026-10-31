@@ -17,6 +17,7 @@ import SwiftUI
 struct StreamSessionView: View {
   let wearables: WearablesInterface
   var wearablesViewModel: WearablesViewModel
+  @State private var showOSCSettings = false
   @State private var viewModel: StreamSessionViewModel
 
   init(wearables: WearablesInterface, wearablesVM: WearablesViewModel) {
@@ -35,6 +36,22 @@ struct StreamSessionView: View {
         NonStreamView(viewModel: viewModel, wearablesVM: wearablesViewModel)
       }
     }
+    .safeAreaInset(edge: .bottom) {
+      Button {
+        showOSCSettings = true
+      } label: {
+        Label(viewModel.oscOutput.enabled ? "OSC activo" : "Configurar OSC", systemImage: "antenna.radiowaves.left.and.right")
+          .font(.subheadline.weight(.semibold))
+          .padding(.horizontal, 16).padding(.vertical, 10)
+          .background(.ultraThinMaterial, in: Capsule())
+      }
+      .accessibilityIdentifier("osc_settings_button")
+      .padding(.bottom, 8)
+    }
+    .sheet(isPresented: $showOSCSettings) {
+      OSCSettingsView(output: viewModel.oscOutput)
+    }
+    .onDisappear { viewModel.oscOutput.shutdown() }
     .alert("Error", isPresented: $viewModel.showError) {
       Button("OK") {
         viewModel.dismissError()

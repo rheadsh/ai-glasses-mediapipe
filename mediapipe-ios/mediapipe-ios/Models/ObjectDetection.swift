@@ -99,6 +99,7 @@ struct VisionLandmarkGroup: Identifiable, Sendable {
 }
 
 struct VisionAnalysisResult: @unchecked Sendable {
+  var oscMessages: [OSCMessage] = []
   let detections: [ObjectDetection]
   let landmarkGroups: [VisionLandmarkGroup]
   let maskImage: UIImage?

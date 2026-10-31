@@ -30,11 +30,11 @@
 		8FFD60612E84A2F70035E446 /* DebugMenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FFD605E2E84A2F70035E446 /* DebugMenuView.swift */; };
 		9CFEF9D75A313189ABFE3BF9 /* Pods_mediapipe_ios.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1B0FFC9FB7E37F2871135009 /* Pods_mediapipe_ios.framework */; };
 		A10000012FA0000100000001 /* ObjectDetection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000002FA0000100000001 /* ObjectDetection.swift */; };
-		A10000132FA0000100000001 /* MediaPipeVisionTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000122FA0000100000001 /* MediaPipeVisionTask.swift */; };
 		A10000032FA0000100000001 /* ObjectDetecting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000022FA0000100000001 /* ObjectDetecting.swift */; };
 		A10000052FA0000100000001 /* MediaPipeObjectDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000042FA0000100000001 /* MediaPipeObjectDetector.swift */; };
 		A10000072FA0000100000001 /* efficientdet_lite0.tflite in Resources */ = {isa = PBXBuildFile; fileRef = A10000062FA0000100000001 /* efficientdet_lite0.tflite */; };
 		A10000112FA0000100000001 /* efficientdet_lite2.tflite in Resources */ = {isa = PBXBuildFile; fileRef = A10000102FA0000100000001 /* efficientdet_lite2.tflite */; };
+		A10000132FA0000100000001 /* MediaPipeVisionTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000122FA0000100000001 /* MediaPipeVisionTask.swift */; };
 		B10000012FA0000100000001 /* efficientnet_lite0.tflite in Resources */ = {isa = PBXBuildFile; fileRef = B10000002FA0000100000001 /* efficientnet_lite0.tflite */; };
 		B10000032FA0000100000001 /* selfie_segmenter.tflite in Resources */ = {isa = PBXBuildFile; fileRef = B10000022FA0000100000001 /* selfie_segmenter.tflite */; };
 		B10000052FA0000100000001 /* magic_touch.tflite in Resources */ = {isa = PBXBuildFile; fileRef = B10000042FA0000100000001 /* magic_touch.tflite */; };
@@ -56,6 +56,8 @@
 		E6DA451F2E79A63100E3F688 /* MockDeviceKitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6DA451A2E79A63100E3F688 /* MockDeviceKitView.swift */; };
 		E6FD3BCE2EB4D53A00E7FE5D /* NonStreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6FD3BCD2EB4D53A00E7FE5D /* NonStreamView.swift */; };
 		FEEE00012F95000100000001 /* DeviceSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEEE00002F95000100000001 /* DeviceSessionManager.swift */; };
+		C20000012FA0000100000001 /* OSCMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000002FA0000100000001 /* OSCMessage.swift */; };
+		C20000032FA0000100000001 /* OSCOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000022FA0000100000001 /* OSCOutput.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -118,11 +120,11 @@
 		8FFD605E2E84A2F70035E446 /* DebugMenuView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugMenuView.swift; sourceTree = "<group>"; };
 		8FFD605F2E84A2F70035E446 /* MainAppView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainAppView.swift; sourceTree = "<group>"; };
 		A10000002FA0000100000001 /* ObjectDetection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObjectDetection.swift; sourceTree = "<group>"; };
-		A10000122FA0000100000001 /* MediaPipeVisionTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPipeVisionTask.swift; sourceTree = "<group>"; };
 		A10000022FA0000100000001 /* ObjectDetecting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObjectDetecting.swift; sourceTree = "<group>"; };
 		A10000042FA0000100000001 /* MediaPipeObjectDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPipeObjectDetector.swift; sourceTree = "<group>"; };
 		A10000062FA0000100000001 /* efficientdet_lite0.tflite */ = {isa = PBXFileReference; lastKnownFileType = file; path = efficientdet_lite0.tflite; sourceTree = "<group>"; };
 		A10000102FA0000100000001 /* efficientdet_lite2.tflite */ = {isa = PBXFileReference; lastKnownFileType = file; path = efficientdet_lite2.tflite; sourceTree = "<group>"; };
+		A10000122FA0000100000001 /* MediaPipeVisionTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPipeVisionTask.swift; sourceTree = "<group>"; };
 		B10000002FA0000100000001 /* efficientnet_lite0.tflite */ = {isa = PBXFileReference; lastKnownFileType = file; path = efficientnet_lite0.tflite; sourceTree = "<group>"; };
 		B10000022FA0000100000001 /* selfie_segmenter.tflite */ = {isa = PBXFileReference; lastKnownFileType = file; path = selfie_segmenter.tflite; sourceTree = "<group>"; };
 		B10000042FA0000100000001 /* magic_touch.tflite */ = {isa = PBXFileReference; lastKnownFileType = file; path = magic_touch.tflite; sourceTree = "<group>"; };
@@ -145,6 +147,8 @@
 		E6DA451A2E79A63100E3F688 /* MockDeviceKitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockDeviceKitView.swift; sourceTree = "<group>"; };
 		E6FD3BCD2EB4D53A00E7FE5D /* NonStreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NonStreamView.swift; sourceTree = "<group>"; };
 		FEEE00002F95000100000001 /* DeviceSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceSessionManager.swift; sourceTree = "<group>"; };
+		C20000002FA0000100000001 /* OSCMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSCMessage.swift; sourceTree = "<group>"; };
+		C20000022FA0000100000001 /* OSCOutput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSCOutput.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -310,6 +314,8 @@
 			isa = PBXGroup;
 			children = (
 				A10000022FA0000100000001 /* ObjectDetecting.swift */,
+				C20000022FA0000100000001 /* OSCOutput.swift */,
+				C20000002FA0000100000001 /* OSCMessage.swift */,
 				A10000042FA0000100000001 /* MediaPipeObjectDetector.swift */,
 			);
 			path = Services;
@@ -588,6 +594,8 @@
 				E6DA451E2E79A63100E3F688 /* CardView.swift in Sources */,
 				E6DA451F2E79A63100E3F688 /* MockDeviceKitView.swift in Sources */,
 				8FD96B872E6F0A9800F56AB1 /* StreamSessionViewModel.swift in Sources */,
+				C20000032FA0000100000001 /* OSCOutput.swift in Sources */,
+				C20000012FA0000100000001 /* OSCMessage.swift in Sources */,
 				8FD96B882E6F0A9800F56AB1 /* StreamSessionView.swift in Sources */,
 				8FFD60602E84A2F70035E446 /* MainAppView.swift in Sources */,
 				8FFD60612E84A2F70035E446 /* DebugMenuView.swift in Sources */,
@@ -648,7 +656,7 @@
 				ENABLE_PREVIEWS = YES;
 				FRAMEWORK_SEARCH_PATHS = "$(inherited)";
 				INFOPLIST_FILE = "mediapipe-ios/Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -680,7 +688,7 @@
 				DEVELOPMENT_TEAM = 2R3W68834M;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = "mediapipe-ios/Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -708,7 +716,7 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.rheadsh.mediapipe-ios.uitests";
@@ -736,7 +744,7 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.rheadsh.mediapipe-ios.uitests";
@@ -764,7 +772,7 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = "";
@@ -798,7 +806,7 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = "";
@@ -869,7 +877,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -924,7 +932,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 14.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
@@ -981,7 +989,7 @@
 			repositoryURL = "https://github.com/facebook/meta-wearables-dat-ios";
 			requirement = {
 				kind = exactVersion;
-				version = 0.8.0;
+				version = 1.0.1;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

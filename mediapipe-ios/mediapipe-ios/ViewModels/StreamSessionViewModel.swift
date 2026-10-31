@@ -23,6 +23,8 @@ enum StreamingStatus {
 final class StreamSessionViewModel {
   // MARK: - State
 
+  let oscOutput = OSCOutput()
+
   var currentVideoFrame: UIImage?
   var hasReceivedFirstFrame: Bool = false
   var streamingStatus: StreamingStatus = .stopped
@@ -71,6 +73,7 @@ final class StreamSessionViewModel {
   private let visionAnalyzer = MediaPipeVisionAnalyzer()
   private var analysisGeneration: Int = 0
   private var stream: MWDATCamera.Stream?
+  private var camera: MWDATCamera.Camera?
 
   private var stateListenerToken: AnyListenerToken?
   private var videoFrameListenerToken: AnyListenerToken?
@@ -119,6 +122,8 @@ final class StreamSessionViewModel {
 
   /// Stops both the stream and the underlying device session. Call in test tearDown.
   func endSession() {
+    camera?.stop()
+    camera = nil
     stream = nil
     clearListeners()
     streamingStatus = .stopped
@@ -221,10 +226,12 @@ final class StreamSessionViewModel {
     )
 
     do {
-      guard let newStream = try deviceSession.addStream(config: config) else {
+      guard let newCamera = try deviceSession.addCamera(config: config) else {
         showError("Unable to create stream. Please try again.")
         return
       }
+      camera = newCamera
+      let newStream = newCamera.stream
       stream = newStream
       streamingStatus = .waiting
       setupListeners(for: newStream)
@@ -264,6 +271,8 @@ final class StreamSessionViewModel {
     case .stopped:
       currentVideoFrame = nil
       streamingStatus = .stopped
+      camera?.stop()
+      camera = nil
       stream = nil
       clearListeners()
       hasReceivedFirstFrame = false
@@ -271,6 +280,7 @@ final class StreamSessionViewModel {
       resetVisionAnalysisResults()
       sessionManager.stopCurrentSession()
     case .waitingForDevice, .starting, .stopping, .paused:
+      oscOutput.clear()
       streamingStatus = .waiting
     case .streaming:
       streamingStatus = .streaming
@@ -330,12 +340,14 @@ final class StreamSessionViewModel {
       Task { @MainActor [weak self] in
         guard let self,
           self.isVisionAnalysisEnabled,
+          self.streamingStatus == .streaming,
           self.analysisGeneration == generation
         else {
           return
         }
         switch result {
         case .success(let result):
+          self.oscOutput.publish(result, task: self.selectedVisionTask)
           self.objectDetections = result.detections
           self.landmarkGroups = result.landmarkGroups
           self.segmentationMask = result.maskImage
@@ -353,6 +365,7 @@ final class StreamSessionViewModel {
   }
 
   private func resetVisionAnalysisResults() {
+    oscOutput.clear()
     objectDetections = []
     landmarkGroups = []
     segmentationMask = nil

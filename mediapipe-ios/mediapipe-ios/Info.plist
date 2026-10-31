@@ -57,7 +57,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>This app needs camera access to stream from your phone's camera as a mock device feed.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>This allows your phone to find and connect to your glasses over Wi-Fi.</string>
+	<string>This allows your phone to connect to your glasses and send tracking data via OSC to devices on your local network.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>This app needs access to save photos captured from your glasses.</string>
 	<key>UIApplicationSceneManifest</key>
