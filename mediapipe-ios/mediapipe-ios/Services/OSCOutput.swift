@@ -12,6 +12,7 @@ final class OSCOutput {
   private(set) var rate: Int
   private(set) var status = "Desactivado"
   private(set) var sentFrames = 0
+  private let defaults: UserDefaults
   private var connection: NWConnection?
   private let queue = DispatchQueue(label: "com.rheadsh.mediapipe.osc", qos: .utility)
   private var ready = false
@@ -22,6 +23,7 @@ final class OSCOutput {
   private var activeTask: MediaPipeVisionTask?
 
   init(defaults: UserDefaults = .standard) {
+    self.defaults = defaults
     host = defaults.string(forKey: "osc.host") ?? ""
     port = defaults.object(forKey: "osc.port") as? Int ?? 9000
     rate = defaults.object(forKey: "osc.rate") as? Int ?? 15
@@ -59,9 +61,9 @@ final class OSCOutput {
     self.port = port
     self.rate = rate
     self.enabled = enabled
-    UserDefaults.standard.set(host, forKey: "osc.host")
-    UserDefaults.standard.set(port, forKey: "osc.port")
-    UserDefaults.standard.set(rate, forKey: "osc.rate")
+    defaults.set(host, forKey: "osc.host")
+    defaults.set(port, forKey: "osc.port")
+    defaults.set(rate, forKey: "osc.rate")
     guard enabled else { status = "Desactivado"; return }
     status = "Preparando UDP…"
     let connection = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: UInt16(port))!, using: .udp)

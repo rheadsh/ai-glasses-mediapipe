@@ -1,1132 +1,247 @@
-# Meta Wearables DAT SDK
+# mediapipe-tests: Meta Ray-Ban, MediaPipe and OSC
 
-> Full API reference: https://wearables.developer.meta.com/llms.txt?full=true
-> DAT docs MCP: https://mcp.developer.meta.com/wearables
-> Developer docs: https://wearables.developer.meta.com/docs/develop/
+## Scope and current versions
 
-## Code style
+This repository contains the SwiftUI app in `mediapipe-ios/`. Preserve unrelated
+working-tree changes. Use the repository's pinned dependencies rather than examples
+from an older DAT release or unversioned documentation.
 
-## Architecture
+- Meta Wearables DAT **1.0.1**, installed through Swift Package Manager.
+- `MediaPipeTasksVision` **0.10.35**, installed through CocoaPods.
+- App and test deployment targets: **iOS 17.2** or newer.
+- The current project has been validated with **Xcode 27.1**. Its package and Swift
+  syntax require a modern Swift compiler; do not retain the old Xcode 15 requirement.
+- Open **`mediapipe-ios/mediapipe-ios.xcworkspace`**, which contains the app and Pods.
+  Opening only the `.xcodeproj` can produce `No such module 'MediaPipeTasksVision'`.
+- Keep both shared `Package.resolved` files and `Podfile.lock` consistent when
+  deliberately changing dependencies. Do not update versions as part of routine fixes.
+- Use Conventional Commits if a commit is requested. Do not commit unless requested.
 
-The SDK is organized into four modules:
-- **MWDATCore**: Device discovery, registration, permissions, device selectors
-- **MWDATCamera**: Stream, VideoFrame, photo capture
-- **MWDATDisplay**: Display capability, display UI components, icons, images, buttons, video
-- **MWDATMockDevice**: MockDeviceKit for testing without hardware
+## Project map
 
-## Swift Patterns
+Paths below are relative to `mediapipe-ios/`:
 
-- Use `async/await` for all SDK operations — the SDK is fully async
-- Use `AsyncSequence` / publisher `.listen {}` for observing streams
-- Annotate UI-updating code with `@MainActor`
-- Never block the main thread with frame processing
-- Handle errors with do/catch — the SDK throws typed errors
+| Location | Responsibility |
+|---|---|
+| `mediapipe-ios/MediaPipeIOSApp.swift` | DAT configuration, app entry, debug UI-test bootstrap |
+| `mediapipe-ios/ViewModels/WearablesViewModel.swift` | Registration, devices, update flows |
+| `mediapipe-ios/ViewModels/DeviceSessionManager.swift` | Device selection and session lifecycle |
+| `mediapipe-ios/ViewModels/StreamSessionViewModel.swift` | Camera, streaming, task selection, accepted results and OSC |
+| `mediapipe-ios/Services/MediaPipeObjectDetector.swift` | Serial MediaPipe inference and task-specific OSC values |
+| `mediapipe-ios/Models/MediaPipeVisionTask.swift` | The 11 supported tasks and bundled model metadata |
+| `mediapipe-ios/Models/ObjectDetection.swift` | Analysis results and preview coordinate conversions |
+| `mediapipe-ios/Services/OSCMessage.swift` | OSC 1.0 encoding and bounded UDP bundles |
+| `mediapipe-ios/Services/OSCOutput.swift` | OSC configuration UI, rate limiting and UDP transport |
+| `OSC.md` | Public OSC routes, argument order, coordinates and receiver setup |
+| `Scripts/download_models.sh` | Official model downloads with pinned SHA-256 checks |
 
-## Naming Conventions
+The app uses manually registered source files in `project.pbxproj`. Add new app files
+to the appropriate group and Sources phase. Test directories use synchronized groups,
+so new test files are discovered automatically; do not also register them manually.
 
-| Type | Convention | Example |
-|------|-----------|---------|
-| Entry point | `Wearables.shared` | `Wearables.shared.startRegistration()` |
-| Device sessions | `*Session` | `DeviceSession` |
-| Capabilities | Named by function | `Stream` |
-| Selectors | `*DeviceSelector` | `AutoDeviceSelector`, `SpecificDeviceSelector` |
-| Config | `*Configuration` | `StreamConfiguration` |
-| Publishers | `*Publisher` | `statePublisher`, `videoFramePublisher` |
+## Dependency workflow
 
-## Imports
+Always build through the workspace. Run `pod install` from `mediapipe-ios/` when the
+Podfile changes or Pods are missing; prefer `pod install` over `pod update` for setup.
+Do not edit generated Pods files. Use the installed CocoaPods/Gemfile workflow.
 
-```swift
-import MWDATCore    // Registration, devices, permissions
-import MWDATCamera  // Stream, VideoFrame, photo capture
-import MWDATDisplay // Display, FlexBox, Text, Button, Image, Icon, VideoPlayer
-```
+DAT products currently linked are `MWDATCore`, `MWDATCamera`, `MWDATDisplay` and, in
+Debug/test contexts, `MWDATMockDevice` / `MWDATMockDeviceTestClient`. OSC uses Apple's
+`Network.framework`; it does not need another package. Do not replace the existing
+MediaPipe integration or add an OSC dependency without a concrete requirement.
 
-For testing:
-```swift
-import MWDATMockDevice  // MockDeviceKit, MockGlasses, MockCameraKit
-```
+## DAT 1.0.1 lifecycle
 
-## Key Types
-
-- `Wearables` — SDK entry point. Call `Wearables.configure()` at launch, then use `Wearables.shared`
-- `Stream` — Camera streaming session. Create with config + device selector
-- `Display` — Display capability attached to a started DeviceSession
-- `VideoFrame` — Individual video frame with `.makeUIImage()` convenience
-- `AutoDeviceSelector` — Automatically selects the best available device
-- `SpecificDeviceSelector` — Selects a specific device by identifier
-- `StreamConfiguration` — Configure video codec, resolution, frame rate
-- `MockDeviceKit` — Factory for creating simulated devices in tests
-
-## Error Handling
-
-```swift
-do {
-    try Wearables.configure()
-} catch {
-    // Handle configuration error
-}
-
-do {
-    try await Wearables.shared.startRegistration()
-} catch {
-    // Handle registration error
-}
-```
-
-## Build and Test
-
-```bash
-# Install dependencies via Swift Package Manager
-# In Xcode: File > Add Package Dependencies > enter repo URL
-
-# Build from command line
-xcodebuild -scheme MWDATCore -destination 'platform=iOS Simulator,name=iPhone 16'
-
-# Run tests
-xcodebuild test -scheme MWDATCoreTests -destination 'platform=iOS Simulator,name=iPhone 16'
-```
-
-For sample apps:
-```bash
-# Open the sample app workspace
-open ExternalSampleApps/CameraAccess/CameraAccess.xcodeproj
-
-# Build and run on simulator (uses MockDeviceKit - no glasses needed)
-xcodebuild -scheme CameraAccess -destination 'platform=iOS Simulator,name=iPhone 16'
-```
-
-## Development Workflow
-
-1. **Add SDK** via Swift Package Manager (SPM) in Xcode
-2. **Import modules** (`MWDATCore`, `MWDATCamera`, `MWDATDisplay` when rendering Display content)
-3. **Configure** at app launch: `try Wearables.configure()`
-4. **Build** with Xcode or `xcodebuild`
-5. **Test** with MockDeviceKit - no physical glasses required
-6. **Debug** using Xcode console for SDK logs
-
-## Live docs search
-
-If your editor supports remote MCP servers, connect `https://mcp.developer.meta.com/wearables` and use `search_dat_docs` for current DAT setup, session lifecycle, camera streaming, MockDeviceKit, permissions, and exact API symbols. This public docs server does not require authentication; do not configure tokens, OAuth, or custom authorization headers for it.
-
-Use `llms.txt` when your tool only supports static reference context.
-
-## Links
-
-- [iOS API Reference](https://wearables.developer.meta.com/docs/reference/ios_swift/dat/0.8)
-- [Developer Documentation](https://wearables.developer.meta.com/docs/develop/)
-- [GitHub Repository](https://github.com/facebook/meta-wearables-dat-ios)
-
-## Dev environment tips
-
-Set up the Meta Wearables Device Access Toolkit in an iOS app.
-
-## Prerequisites
-
-- Xcode 15.0+, iOS 16.0+ deployment target
-- Meta AI companion app installed on test device
-- Ray-Ban Meta glasses or Meta Ray-Ban Display glasses (or use MockDeviceKit for development)
-- Developer Mode enabled in Meta AI app (Settings > Your glasses > Developer Mode)
-
-## Step 1: Add the SDK via Swift Package Manager
-
-1. In Xcode, select **File** > **Add Package Dependencies...**
-2. Enter `https://github.com/facebook/meta-wearables-dat-ios`
-3. Select a [version](https://github.com/facebook/meta-wearables-dat-ios/tags)
-4. Add `MWDATCore` and `MWDATCamera` to your target
-
-## Step 2: Configure Info.plist
-
-Add these required entries to your `Info.plist`:
-
-```xml
-<!-- URL scheme for Meta AI callbacks -->
-<key>CFBundleURLTypes</key>
-<array>
-  <dict>
-    <key>CFBundleTypeRole</key>
-    <string>Editor</string>
-    <key>CFBundleURLName</key>
-    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-    <key>CFBundleURLSchemes</key>
-    <array>
-      <string>myexampleapp</string>
-    </array>
-  </dict>
-</array>
-
-<!-- External accessory protocol -->
-<key>UISupportedExternalAccessoryProtocols</key>
-<array>
-  <string>com.meta.ar.wearable</string>
-</array>
-
-<!-- Background modes -->
-<key>UIBackgroundModes</key>
-<array>
-  <string>bluetooth-peripheral</string>
-  <string>external-accessory</string>
-</array>
-<key>NSBluetoothAlwaysUsageDescription</key>
-<string>Needed to connect to Meta Wearables</string>
-
-<!-- DAT configuration -->
-<key>MWDAT</key>
-<dict>
-  <key>AppLinkURLScheme</key>
-  <string>myexampleapp://</string>
-  <key>MetaAppID</key>
-  <string>0</string>
-</dict>
-```
-
-Replace `myexampleapp` with your app's URL scheme. Use `0` for `MetaAppID` during development with Developer Mode. Also add `fb-viewapp` to the Info.plist URL query-schemes allowlist used by `UIApplication.canOpenURL` so the SDK can detect and open Meta AI.
-
-## Step 3: Initialize the SDK
-
-Call `Wearables.configure()` once at app launch:
+1. Call `try Wearables.configure()` once at app launch. Surface configuration failures.
+   Do not access `Wearables.shared` after configuration failed.
+2. Route app-open URLs to `try await Wearables.shared.handleUrl(url)`.
+3. Complete Meta AI registration, then check/request the camera permission.
+4. Create the device selector early enough to observe an available device.
+5. Create and start a `DeviceSession`; observe state/errors and wait for `.started`.
+6. Add a **Camera**, retain it, and use its child stream:
 
 ```swift
-import MWDATCore
-
-@main
-struct MyApp: App {
-    init() {
-        do {
-            try Wearables.configure()
-        } catch {
-            assertionFailure("Failed to configure Wearables SDK: \(error)")
-        }
-    }
-
-    var body: some Scene {
-        WindowGroup {
-            ContentView()
-        }
-    }
+let configuration = StreamConfiguration(
+  videoCodec: .raw, resolution: .low, frameRate: 24)
+guard let camera = try session.addCamera(config: configuration) else {
+  // The session must be started before adding the camera.
+  return
 }
-```
-
-## Step 4: Handle URL callbacks
-
-Your app must handle the URL callback from Meta AI after registration:
-
-```swift
-.onOpenURL { url in
-    Task {
-        _ = try? await Wearables.shared.handleUrl(url)
-    }
-}
-```
-
-## Step 5: Register with Meta AI
-
-```swift
-func startRegistration() async throws {
-    try await Wearables.shared.startRegistration()
-}
-```
-
-Observe registration state:
-
-```swift
-Task {
-    for await state in Wearables.shared.registrationStateStream() {
-        // Update UI based on registration state
-    }
-}
-```
-
-## Step 6: Start streaming
-
-```swift
-import MWDATCore
-import MWDATCamera
-
-// Create a DeviceSession — device selection is configured here
-let wearables = Wearables.shared
-let deviceSelector = AutoDeviceSelector(wearables: wearables)
-let deviceSession = try wearables.createSession(deviceSelector: deviceSelector)
-try deviceSession.start()
-
-// Wait for the device session to reach the started state
-for await state in deviceSession.stateStream() {
-    if state == .started { break }
-}
-
-let config = StreamConfiguration(
-    videoCodec: .raw,
-    resolution: .low,
-    frameRate: 24
-)
-guard let stream = try deviceSession.addStream(config: config) else {
-    return
-}
-
-// Observe frames
-let frameToken = stream.videoFramePublisher.listen { frame in
-    guard let image = frame.makeUIImage() else { return }
-    Task { @MainActor in
-        self.currentFrame = image
-    }
-}
-
-// Start the stream capability
+let stream = camera.stream
+// Retain camera, stream and publisher listener tokens in their owner.
+// Attach listeners before starting the child stream.
 stream.start()
 ```
 
-## Next steps
+`DeviceSession.addStream` was removed. Do not restore it. `Camera.stop()` detaches
+the capability and stops its children; `stream.stop()` stops the preview. Keep their
+lifetimes explicit, and finish session cleanup when the flow ends.
 
-- [Camera Streaming](camera-streaming.md) — Resolution, frame rate, photo capture
-- [MockDevice Testing](mockdevice-testing.md) — Test without hardware
-- [Session Lifecycle](session-lifecycle.md) — Handle pause/resume/stop
-- [Permissions](permissions-registration.md) — Camera permission flows
-- [Full documentation](https://wearables.developer.meta.com/docs/develop/)
+- Registration, permission checks/requests, URL handling and update navigation are
+  async/throwing. Use the exact signatures from the pinned SDK.
+- `DeviceSession.start()` and `addCamera(config:)` are synchronous/throwing;
+  camera/stream start and stop methods are synchronous. Do not add `await` blindly.
+- Observe states using AsyncSequence or publisher `.listen {}`. Retain tokens and
+  cancel observation tasks on cleanup; avoid discarding tokens immediately.
+- `.paused` is temporary: do not create a replacement session while paused.
+  `.stopped` is terminal: a restart needs a new session.
+- Since DAT 0.9, session state/error streams finish at `.stopped`. Handle streams
+  that finish without yielding `.started`; do not wait forever for a past event.
+- Device state belongs to `Device`: `addDeviceStateListener` and accessors such as
+  battery, charging, don, hinge and thermal state. Do not use removed
+  `Wearables.deviceStateStream(for:)` APIs.
+- Handle typed errors. In tests, only `WearablesError.alreadyConfigured` is an
+  expected configuration error when the host app already initialized DAT.
+- Use `localizedDescription` for user messages. Do not infer disconnect causes from
+  a generic state; rely on explicit errors or device state.
 
-## Testing instructions
+Keep the URL scheme `mediapipe-ios://`, `fb-viewapp` query allowlist, accessory
+protocol `com.meta.ar.wearable`, Bluetooth/local-network descriptions, background
+modes and MWDAT app configuration intact. `META_APP_ID = 0` is a Developer Mode
+setting, not production registration. Never insert real client secrets into tests.
 
-Use MockDeviceKit to test DAT SDK integrations without physical Meta glasses.
+## Capabilities available for future work
 
-MockDeviceKit simulates Meta glasses behavior for development and testing. It provides:
-- `MockDeviceKit` — Entry point for creating simulated devices
-- `MockGlasses` — Simulated glasses (Ray-Ban Meta, etc.)
-- `MockCameraKit` — Simulated camera with configurable video feed and photo capture
+DAT 1.0.1 also ships Display, Inputs, Motion and Speech modules. A dependency being
+available does not mean this app already implements the capability or every glasses
+model supports it. Check the pinned changelog, API interface, permissions and hardware
+before adding a feature.
 
-## Setup
+- `MWDATDisplay`: only target display-capable hardware. Wait for session and Display
+  readiness before sending content; use a single root `FlexBox` or `VideoPlayer`.
+  Qualify Display DSL names if SwiftUI's `Text`, `Button` or `Image` conflict.
+- `MWDATInputs`: device input events for supported interactions.
+- `MWDATMotion`: motion/orientation data with explicit lifecycle management.
+- Speech, voice invocations, standalone high-quality photo capture (`Camera.photo`)
+  and camera audio streaming are marked **experimental** in the pinned 1.0 changelog.
+  Check publishing restrictions before promising production support. Microphone
+  features require their own permission flow.
+- Do not describe camera orientation as eye tracking, infer metric depth from a
+  normalized box, or promise world anchoring from the current 2D landmarks.
 
-Add `MWDATMockDevice` to your target via Swift Package Manager (it's included in the `meta-wearables-dat-ios` package).
+## MediaPipe and concurrency
 
-```swift
-import MWDATMockDevice
+The app supports object detection (EfficientDet Lite0 and Lite2), image classification,
+image segmentation, interactive segmentation, gesture recognition, hand landmarks,
+image embeddings, face detection, face landmarks, pose and holistic landmarks.
+
+- Keep SDK/UI ownership on `@MainActor`; use `@Observable` and `@Bindable` as in the app.
+- Run model preparation and inference on the existing serial background queue.
+  Never block MainActor with inference, synchronous waiting, or a semaphore.
+- Own exactly one active MediaPipe runtime. Release the old runtime before loading
+  the next model. Keep back pressure: drop a new frame if analysis is busy.
+- Invalidate pending callbacks when task/model/enabled state changes. Publish only
+  results from the current generation and a streaming session.
+- Preserve structured `VisionAnalysisResult.oscMessages` when wrapping/copying results;
+  do not lose category, gesture, mask or embedding data while adding inference timing.
+- Keep model files bundled and hash-pinned. Do not silently fetch models at runtime.
+- `DetectionGeometry` owns aspect-fill mapping. OSC coordinates refer to the source
+  camera image; preview cropping must not change their meaning.
+- Current landmarks are 2D and indexed within each result. They are not persistent
+  person IDs or 3D world coordinates. Segmentation confidence is not a binary area.
+
+## OSC contract
+
+Treat [mediapipe-ios/OSC.md](mediapipe-ios/OSC.md) as the receiver-facing contract.
+Update it and protocol tests together if addresses, argument types or ordering change.
+
+- Send only the selected task under `/mediapipe/<task>/...`.
+- Remain disabled by default. Persist destination/rate, not an automatic opt-in.
+- Keep int32/float32 big-endian encoding, ASCII null-terminated strings padded to
+  four bytes, immediate bundles, frame IDs and the 1200-byte datagram limit.
+- Chunk landmarks/embeddings/mask grids; do not send video or full-resolution masks
+  through OSC. Preserve offsets, counts and group labels needed for reconstruction.
+- Encode and submit packets off MainActor; bound in-flight work and transmission rate.
+- Clear task state on pause, stop, task/model change or analysis disable. Attempt a
+  final clear before closing/replacing the connection. Drop stale inference results.
+- UDP acceptance is not proof of remote reception. Receivers need frame handling and
+  an expiry timeout because packets and clears may be lost or reordered.
+- Tests must use loopback/ephemeral ports, not a developer's installed receiver or
+  saved destination. Keep network tests bounded and defaults isolated.
+- Local-network usage descriptions must cover both glasses connectivity and OSC.
+
+## Tests and validation
+
+Test suites under `mediapipe-ios/mediapipe-iosTests/`:
+
+- `DetectionGeometryTests`: normalized boxes, clipping and aspect-fill/touch mapping.
+- `MediaPipePipelineTests`: model catalog, bundled resources, real sequential inference
+  for all 11 tasks, task-specific OSC data and detector fixtures.
+- `OSCEncodingTests`: wire bytes, padding, endian order, packet size, frame IDs and
+  tracking payload mapping/validation.
+- `OSCOutputIntegrationTests`: isolated defaults, loopback UDP receipt and terminal clear.
+- `DATStreamingIntegrationTests`: signed host app, MockDeviceKit streaming and capture.
+- `TestSupport.swift`: required fixtures and cancellable, deadline-bounded state waits.
+
+`mediapipe-iosUITests/MediaPipeIOSUITests.swift` covers app flows using the async
+`MockDeviceTestClient`: registration, pairing, streaming, photo preview, model/task
+selection, device availability and OSC settings.
+
+Testing rules:
+
+- DAT and MockDeviceKit hold process-global state. Keep SDK/mock suites serial;
+  the shared scheme marks test targets nonparallel. Use `-parallel-testing-enabled NO`.
+- **Run tests with normal simulator signing.** Do not use `CODE_SIGNING_ALLOWED=NO`
+  for runtime DAT tests: this environment's unsigned host fails `Wearables.configure()`
+  with `.internalError`. The normally signed simulator host runs successfully.
+- An unsigned generic simulator/device build is a compile check only. Never report
+  it as proof of SDK initialization, real-device streaming or delivery to an OSC peer.
+- Configure DAT successfully before enabling mocks. Set `MockDeviceKitConfig` explicitly
+  for registration/permission expectations. Power on, unfold and don mock glasses.
+- Wait for observable state/frame availability instead of fixed startup sleeps.
+  Every wait must have a deadline and honor cancellation. Avoid `try?` on setup paths,
+  forced unwraps, unsafe continuations and tests that continue after setup failed.
+- In async cleanup, stop the stream, release the session, then
+  `await MockDeviceKit.shared.disable()`; the async overload completes teardown.
+  Use awaited unpair operations where needed. Cleanup must run even after assertions.
+- DAT 1.0.1's `MockCameraKit.setCameraFeed(cameraFacing:)` is synchronous.
+  Permission controls are exposed through `MockDeviceKit.shared.permissions`.
+- UI tests use `--ui-testing`, a unique port-file path per test and the async
+  `MockDeviceTestClient`. Await network commands before XCTest assertions; assertion
+  autoclosures cannot await. Prefer `await fulfillment(of:timeout:)` over blocking waits.
+- Keep real inference tests separate from UI control tests. Disable inference in UI
+  automation while the mock supplies frames. UI control tests also pass
+  `--freeze-preview-for-ui-testing` to display only the first real mock frame and
+  stabilize accessibility snapshots; native streaming stays active. Streaming and
+  pipeline tests must not use this flag or replace real inference with stubs.
+- Fail clearly on configuration/resource/protocol errors. Do not delete useful coverage
+  or convert failures to skips merely to make the suite green.
+
+Commands from the repository root (choose an installed simulator):
+
+```bash
+xcrun simctl list devices available
+
+# Compile-only validation; this does not run DAT.
+xcodebuild -workspace mediapipe-ios/mediapipe-ios.xcworkspace \
+  -scheme mediapipe-ios -destination 'generic/platform=iOS Simulator' \
+  CODE_SIGNING_ALLOWED=NO build
+
+# Unit, real-model, OSC and mock-stream integration tests, with normal signing.
+xcodebuild -workspace mediapipe-ios/mediapipe-ios.xcworkspace \
+  -scheme mediapipe-ios -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -parallel-testing-enabled NO -only-testing:mediapipe-iosTests test
+
+# UI flows, also signed and serial.
+xcodebuild -workspace mediapipe-ios/mediapipe-ios.xcworkspace \
+  -scheme mediapipe-ios -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -parallel-testing-enabled NO -only-testing:mediapipe-iosUITests test
 ```
 
-## Creating a mock device
-
-```swift
-import MWDATMockDevice
-
-let mockDeviceKit = MockDeviceKit.shared
-mockDeviceKit.enable()
-
-let mockDevice = try mockDeviceKit.pairGlasses(model: .rayBanMeta)
-```
-
-## Simulating device states
-
-```swift
-// Simulate glasses lifecycle
-mockDevice.powerOn()
-mockDevice.unfold()
-mockDevice.don()    // Simulate wearing the glasses
-
-// Later...
-mockDevice.doff()   // Simulate removing
-mockDevice.fold()
-mockDevice.powerOff()
-```
-
-## Configuring permissions
-
-MockDeviceKit provides `mockPermissions` to control permission behavior without the Meta AI app.
-
-By default, `requestPermission()` returns `.granted`. Use `set(_:_:)` to control `checkPermissionStatus()` and `setRequestResult(_:result:)` to control `requestPermission()` outcomes.
-
-```swift
-let mockDeviceKit = MockDeviceKit.shared
-
-// Simulate denied camera permission status
-mockDeviceKit.mockPermissions.set(.camera, .denied)
-
-// Simulate denied request result (user tapping "deny")
-mockDeviceKit.mockPermissions.setRequestResult(.camera, result: .denied)
-```
-
-## Setting up mock camera feeds
-
-### Video streaming
-
-```swift
-let camera = mockDevice.services.camera
-camera.setCameraFeed(fileURL: videoURL)
-```
-
-### Photo capture
-
-```swift
-let camera = mockDevice.services.camera
-camera.setCapturedImage(fileURL: imageURL)
-```
-
-## Writing tests with MockDeviceKit
-
-Create a reusable test base class:
-
-```swift
-import XCTest
-import MetaWearablesDAT
-
-@MainActor
-class MockDeviceKitTestCase: XCTestCase {
-    private var mockDevice: MockGlasses?
-    private var cameraKit: MockCameraKit?
-
-    override func setUp() async throws {
-        try await super.setUp()
-        MockDeviceKit.shared.enable()
-        mockDevice = try MockDeviceKit.shared.pairGlasses(model: .rayBanMeta)
-        cameraKit = mockDevice?.services.camera // mockDevice is MockGlasses? for tearDown nil-ability
-    }
-
-    override func tearDown() async throws {
-        MockDeviceKit.shared.disable()
-        mockDevice = nil
-        cameraKit = nil
-        try await super.tearDown()
-    }
-}
-```
-
-## Using MockDeviceKit in the CameraAccess sample
-
-The CameraAccess sample app includes a Debug menu for MockDeviceKit:
-
-1. Tap the **Debug icon** to open the MockDeviceKit menu
-2. Tap **Pair RayBan Meta** to create a simulated device
-3. Use **PowerOn**, **Unfold**, **Don** to simulate glasses states
-4. Select video/image files to configure mock camera feeds
-5. Start streaming to see simulated frames
-
-## Supported media formats
-
-| Type | Formats |
-|------|---------|
-| Video | h.265 (HEVC) |
-| Image | JPEG, PNG |
-
-## Links
-
-- [Mock Device Kit overview](https://wearables.developer.meta.com/docs/mock-device-kit)
-- [iOS testing guide](https://wearables.developer.meta.com/docs/testing-mdk-ios)
-
-## Building and streaming
-
-Guide for implementing camera streaming and photo capture with the DAT SDK.
-
-## Key concepts
-
-- **Stream**: Main interface for camera streaming
-- **VideoFrame**: Individual video frames — call `.makeUIImage()` to render
-- **StreamConfiguration**: Configure resolution, frame rate, and codec
-- **PhotoData**: Still image captured from glasses
-
-## Creating a DeviceSession
-
-```swift
-import MWDATCamera
-import MWDATCore
-
-let wearables = Wearables.shared
-let deviceSelector = AutoDeviceSelector(wearables: wearables)
-// Or for a specific device: SpecificDeviceSelector(device: deviceId)
-let deviceSession = try wearables.createSession(deviceSelector: deviceSelector)
-try deviceSession.start()
-
-// Wait for the device session to reach the started state
-for await state in deviceSession.stateStream() {
-    if state == .started { break }
-}
-```
-
-## Adding a Stream
-
-Once the `DeviceSession` is started, add a `Stream` capability:
-
-```swift
-let config = StreamConfiguration(
-    videoCodec: .raw,
-    resolution: .medium,  // 504x896
-    frameRate: 24
-)
-
-guard let stream = try deviceSession.addStream(config: config) else {
-    // DeviceSession must be in the started state before adding a stream
-    return
-}
-```
-
-### Resolution options
-
-| Resolution | Size |
-|-----------|------|
-| `.high` | 720 x 1280 |
-| `.medium` | 504 x 896 |
-| `.low` | 360 x 640 |
-
-### Frame rate options
-
-Valid values: `2`, `7`, `15`, `24`, `30` FPS.
-
-Lower resolution and frame rate yield higher visual quality due to less Bluetooth compression.
-
-## Observing stream state
-
-`StreamState` transitions: `stopping` → `stopped` → `waitingForDevice` → `starting` → `streaming` → `paused`
-
-```swift
-let stateToken = stream.statePublisher.listen { state in
-    Task { @MainActor in
-        switch state {
-        case .streaming:
-            // Stream is active, frames are flowing
-        case .waitingForDevice:
-            // Waiting for glasses to connect
-        case .stopped:
-            // Stream ended — release resources
-        case .paused:
-            // Temporarily suspended — keep connection, wait
-        default:
-            break
-        }
-    }
-}
-```
-
-## Receiving video frames
-
-```swift
-let frameToken = stream.videoFramePublisher.listen { frame in
-    guard let image = frame.makeUIImage() else { return }
-    Task { @MainActor in
-        self.previewImage = image
-    }
-}
-```
-
-## Starting and stopping
-
-```swift
-// Start the stream capability
-stream.start()
-
-// Stop streaming
-stream.stop()
-
-// Stop the parent device session when you're done with all capabilities
-deviceSession.stop()
-```
-
-## Photo capture
-
-Capture a still photo while streaming:
-
-```swift
-// Listen for photo data
-let photoToken = stream.photoDataPublisher.listen { photoData in
-    let imageData = photoData.data
-    // Convert to UIImage or save
-}
-
-// Trigger capture
-stream.capturePhoto(format: .jpeg)
-```
-
-## Bandwidth and quality
-
-Resolution and frame rate are constrained by Bluetooth Classic bandwidth. The SDK automatically reduces quality when bandwidth is limited:
-1. First lowers resolution (e.g., High → Medium)
-2. Then reduces frame rate (e.g., 30 → 24), never below 15 FPS
-
-Request lower settings for higher visual quality per frame.
-
-## Links
-
-- [Stream API reference](https://wearables.developer.meta.com/docs/reference/ios_swift/dat/0.8/mwdatcamera_stream)
-- [StreamConfiguration API reference](https://wearables.developer.meta.com/docs/reference/ios_swift/dat/0.8/mwdatcamera_streamconfiguration)
-- [Integration guide](https://wearables.developer.meta.com/docs/build-integration-ios)
-
-## Session management
-
-Guide for managing device session states in DAT SDK integrations.
-
-## Overview
-
-The DAT SDK runs work inside sessions. Meta glasses expose two experience types:
-- **Device sessions** — sustained access to device sensors and outputs
-- **Transactions** — short, system-owned interactions (notifications, "Hey Meta")
-
-Your app observes session state changes — the device decides when to transition.
-
-## Session states
-
-| State | Meaning | App action |
-|-------|---------|------------|
-| `idle` | Session created but not started | Call `start()` when ready |
-| `starting` | Session is connecting to the device | Show connecting state |
-| `started` | Session active and ready for capabilities | Add or resume work |
-| `paused` | Temporarily suspended by the device | Hold work, may resume |
-| `stopping` | Session is cleaning up | Wait for terminal state |
-| `stopped` | Session inactive and terminal | Free resources, create a new session to restart |
-
-## Observing session state
-
-```swift
-let session = try Wearables.shared.createSession(deviceSelector: AutoDeviceSelector())
-try session.start()
-
-Task {
-    for await state in session.stateStream() {
-        switch state {
-        case .started:
-            // Confirm UI shows session is live
-        case .paused:
-            // Keep connection, wait for started or stopped
-        case .stopped:
-            // Release resources, allow user to restart
-        default:
-            break
-        }
-    }
-}
-```
-
-## Stream state transitions
-
-A `Stream` is a capability attached to a started `DeviceSession`:
-
-```text
-stopped → waitingForDevice → starting → streaming → paused → stopped
-```
-
-```swift
-guard let stream = try session.addStream(config: StreamConfiguration()) else { return }
-
-let token = stream.statePublisher.listen { state in
-    Task { @MainActor in
-        // React to state changes
-    }
-}
-```
-
-## Common transitions
-
-The device changes session state when:
-- User performs a system gesture that opens another experience
-- Another app starts a device session
-- User removes or folds the glasses (Bluetooth disconnects)
-- User removes the app from Meta AI companion app
-- Connectivity between companion app and glasses drops
-
-## Pause and resume
-
-When a session is paused:
-- The device keeps the connection alive
-- Streams stop delivering data
-- The device may resume by returning to `started`
-
-Your app should **not** attempt to restart while paused — wait for `started` or `stopped`.
-
-## Device availability
-
-Monitor device availability to know when sessions can start:
-
-```swift
-Task {
-    for await devices in Wearables.shared.devicesStream() {
-        // Update list of available glasses
-    }
-}
-```
-
-Key behaviors:
-- Closing hinges disconnects Bluetooth → forces `stopped`
-- Opening hinges restores Bluetooth but does **not** restart sessions
-- Start a new session after the device becomes available again
-
-## Implementation checklist
-
-- [ ] Handle all relevant session states (`started`, `paused`, `stopped`)
-- [ ] Monitor device availability before starting work
-- [ ] Release resources only after `stopped`
-- [ ] Don't infer transition causes — rely only on observable state
-- [ ] Don't restart during `paused` — wait for system to resume or stop
-
-## Links
-
-- [Session lifecycle documentation](https://wearables.developer.meta.com/docs/lifecycle-events)
-
-## Permissions
-
-Register your app with Meta AI, then request the device permissions it needs.
-
-The DAT SDK separates two concepts:
-1. **Registration** — Your app registers with Meta AI to become a permitted integration
-2. **Device permissions** — After registration, request specific device permissions (e.g., camera)
-
-All permission grants occur through the Meta AI companion app.
-
-## Registration flow
-
-### Start registration
-
-```swift
-func startRegistration() async throws {
-    try await Wearables.shared.startRegistration()
-}
-```
-
-This opens the Meta AI app where the user approves your app. Meta AI then calls back via your URL scheme.
-
-### Handle the callback
-
-```swift
-.onOpenURL { url in
-    Task {
-        _ = try? await Wearables.shared.handleUrl(url)
-    }
-}
-```
-
-### Observe registration state
-
-```swift
-Task {
-    for await state in Wearables.shared.registrationStateStream() {
-        switch state {
-        case .registered:
-            // App is registered, can request permissions
-        case .unavailable:
-            // Registration unavailable
-        case .available:
-            // Ready to register
-        case .registering:
-            // Registration in progress
-        }
-    }
-}
-```
-
-### Unregister
-
-```swift
-func startUnregistration() async throws {
-    try await Wearables.shared.startUnregistration()
-}
-```
-
-## Camera permissions
-
-### Check permission status
-
-```swift
-let status = try await Wearables.shared.checkPermissionStatus(.camera)
-```
-
-### Request permission
-
-```swift
-let status = try await Wearables.shared.requestPermission(.camera)
-```
-
-The SDK opens Meta AI for the user to grant access. Users can choose:
-- **Allow once** — temporary, single-session grant
-- **Allow always** — persistent grant
-
-## Multi-device behavior
-
-Users can link multiple glasses to Meta AI. The SDK handles this transparently:
-- Permission granted on **any** linked device means your app has access
-- You don't need to track which device has permissions
-- If all devices disconnect, permissions become unavailable
-
-## Developer Mode vs Production
-
-| Mode | Registration behavior |
-|------|----------------------|
-| Developer Mode | Registration always allowed (use `MetaAppID` = `0`) |
-| Production | Users must be in proper release channel |
-
-For production, get your `APPLICATION_ID` from the [Wearables Developer Center](https://wearables.developer.meta.com/).
-
-## Prerequisites
-
-- Registration requires an internet connection
-- Meta AI companion app must be installed
-- For Developer Mode: enable in Meta AI > Settings > Your glasses > Developer Mode
-
-## Links
-
-- [Permissions documentation](https://wearables.developer.meta.com/docs/permissions-requests)
-- [Getting started guide](https://wearables.developer.meta.com/docs/getting-started-toolkit)
-- [Manage projects](https://wearables.developer.meta.com/docs/manage-projects)
-
-## Debugging
-
-Diagnose common setup, registration, and streaming issues in DAT SDK integrations.
-
-## Quick diagnosis
-
-```text
-Device not connecting?
-│
-├── Is Developer Mode enabled? → Enable in Meta AI app settings
-│
-├── Is device registered? → Check registration state
-│
-├── Is device in range? → Bluetooth on, glasses powered on
-│
-├── Is the app registered? → Check registrationStateStream()
-│
-└── Stream stuck in waitingForDevice? → Check device availability
-```
-
-## Developer Mode
-
-Developer Mode must be enabled for 3P apps to access device features.
-
-### Enabling Developer Mode
-
-1. Open Meta AI app on phone
-2. Go to Settings → (Your connected glasses)
-3. Find "Developer Mode" toggle
-4. Toggle ON
-5. Device may restart
-
-### Symptoms of Developer Mode disabled
-
-- Registration completes but device never connects
-- Stream stuck in `waitingForDevice`
-- Permission requests fail or never appear
-
-### Watch for
-
-- Developer Mode toggles **off** after firmware updates — re-enable it
-- Developer Mode is per-device — enable for each glasses pair
-- Some features need additional permissions beyond Developer Mode
-
-## Stream state issues
-
-### Expected flow
-
-```text
-stopped → waitingForDevice → starting → streaming → stopped
-```
-
-### Stuck in waitingForDevice
-
-- Device not in range or not connected
-- Device not reporting availability
-- DeviceSelector not matching any device
-
-### Unexpected stop
-
-- Device disconnected (out of range, battery died)
-- Channel closed by device
-- Error in frame processing
-
-## Version compatibility
-
-Ensure compatible versions of SDK, Meta AI app, and glasses firmware. See [version dependencies](https://wearables.developer.meta.com/docs/version-dependencies) for the current compatibility matrix.
-
-## Known issues
-
-| Issue | Workaround |
-|-------|-----------|
-| No internet → registration fails | Internet required for registration |
-| Streams started with glasses doffed pause when donned | Unpause by tapping side of glasses |
-| [iOS] Meta Ray-Ban Display: no audio feedback on pause/resume | Will be fixed in future release |
-
-## Adding debug logging
-
-```swift
-import os
-
-private let logger = Logger(subsystem: "com.yourapp", category: "Wearables")
-
-// In your streaming code:
-logger.debug("Stream state changed to: \(state)")
-logger.error("Stream error: \(error)")
-```
-
-## Checklist
-
-- [ ] Developer Mode enabled in Meta AI app
-- [ ] Meta AI app updated to compatible version
-- [ ] Glasses firmware updated to compatible version
-- [ ] Internet connection available for registration
-- [ ] Bluetooth enabled on phone
-- [ ] Correct URL scheme configured in Info.plist
-- [ ] Background modes enabled (bluetooth-peripheral, external-accessory)
-
-## Links
-
-- [Known issues](https://wearables.developer.meta.com/docs/knownissues)
-- [Version dependencies](https://wearables.developer.meta.com/docs/version-dependencies)
-- [Troubleshooting discussions](https://github.com/facebook/meta-wearables-dat-ios/discussions)
-
-## Sample app
-
-Build an iOS DAT app with camera streaming and photo capture.
-
-This walkthrough covers app setup, registration, streaming, and capture. Pair it with the [CameraAccess sample](https://github.com/facebook/meta-wearables-dat-ios/tree/main/samples).
-
-## Project setup
-
-1. Create a new Xcode project (SwiftUI App)
-2. Add the SDK via SPM: `https://github.com/facebook/meta-wearables-dat-ios`
-3. Add `MWDATCore`, `MWDATCamera`, and `MWDATMockDevice` to your target
-4. Configure `Info.plist` (see [Getting Started](getting-started.md))
-
-## App architecture
-
-A typical DAT app has these components:
-
-```text
-MyDATApp/
-├── MyDATApp.swift              # App entry point, SDK init
-├── ViewModels/
-│   ├── WearablesViewModel.swift    # Registration, device management
-│   └── StreamViewModel.swift # Streaming, photo capture
-└── Views/
-    ├── MainAppView.swift           # Navigation
-    ├── RegistrationView.swift      # Registration UI
-    └── StreamView.swift            # Video preview, capture button
-```
-
-## SDK initialization
-
-```swift
-import MWDATCore
-
-@main
-struct MyDATApp: App {
-    init() {
-        do {
-            try Wearables.configure()
-        } catch {
-            assertionFailure("Wearables SDK configuration failed: \(error)")
-        }
-    }
-
-    var body: some Scene {
-        WindowGroup {
-            MainAppView()
-                .onOpenURL { url in
-                    Task {
-                        _ = try? await Wearables.shared.handleUrl(url)
-                    }
-                }
-        }
-    }
-}
-```
-
-## Wearables ViewModel
-
-```swift
-import MWDATCore
-
-@MainActor
-class WearablesViewModel: ObservableObject {
-    @Published var registrationState: String = "Unknown"
-    @Published var devices: [DeviceIdentifier] = []
-
-    private let wearables = Wearables.shared
-
-    func observeState() {
-        Task {
-            for await state in wearables.registrationStateStream() {
-                self.registrationState = "\(state)"
-            }
-        }
-        Task {
-            for await devices in wearables.devicesStream() {
-                self.devices = devices.map { $0.identifier }
-            }
-        }
-    }
-
-    func register() {
-        try? wearables.startRegistration()
-    }
-
-    func unregister() {
-        try? wearables.startUnregistration()
-    }
-}
-```
-
-## Stream ViewModel
-
-```swift
-import MWDATCamera
-import MWDATCore
-
-@MainActor
-class StreamViewModel: ObservableObject {
-    @Published var currentFrame: UIImage?
-    @Published var streamState: String = "Stopped"
-    @Published var capturedPhoto: Data?
-
-    private let wearables = Wearables.shared
-    private var deviceSession: DeviceSession?
-    private var stream: Stream?
-
-    func startStream() async {
-        let config = StreamConfiguration(
-            videoCodec: .raw,
-            resolution: .medium,
-            frameRate: 24
-        )
-        let selector = AutoDeviceSelector(wearables: wearables)
-
-        do {
-            let deviceSession = try wearables.createSession(deviceSelector: selector)
-            try deviceSession.start()
-            // Wait for the device session to reach the started state
-            for await state in deviceSession.stateStream() {
-                if state == .started { break }
-            }
-            guard let stream = try deviceSession.addStream(config: config) else { return }
-            self.deviceSession = deviceSession
-            self.stream = stream
-        } catch {
-            return
-        }
-
-        guard let stream else { return }
-
-        _ = stream.statePublisher.listen { [weak self] state in
-            Task { @MainActor in
-                self?.streamState = "\(state)"
-            }
-        }
-
-        _ = stream.videoFramePublisher.listen { [weak self] frame in
-            guard let image = frame.makeUIImage() else { return }
-            Task { @MainActor in
-                self?.currentFrame = image
-            }
-        }
-
-        _ = stream.photoDataPublisher.listen { [weak self] photoData in
-            Task { @MainActor in
-                self?.capturedPhoto = photoData.data
-            }
-        }
-
-        stream.start()
-    }
-
-    func stopStream() {
-        stream?.stop()
-        deviceSession?.stop()
-        stream = nil
-        deviceSession = nil
-    }
-
-    func capturePhoto() {
-        stream?.capturePhoto(format: .jpeg)
-    }
-}
-```
-
-## Testing with MockDeviceKit
-
-Add mock device support to develop without glasses:
-
-```swift
-import MWDATMockDevice
-
-func setupMockDevice() async {
-    let mockDeviceKit = MockDeviceKit.shared
-    mockDeviceKit.enable()
-
-    guard let device = try? mockDeviceKit.pairGlasses(model: .rayBanMeta) else { return }
-    device.don()
-
-    if let videoURL = Bundle.main.url(forResource: "test_video", withExtension: "mov") {
-        let camera = device.services.camera
-        camera.setCameraFeed(fileURL: videoURL)
-    }
-}
-
-func tearDownMockDevice() {
-    MockDeviceKit.shared.disable()
-}
-```
-
-## Allowed dependencies
-
-Your DAT app should only depend on:
-- `MWDATCore` — always required
-- `MWDATCamera` — for camera streaming
-- `MWDATDisplay` — for rendering Display content
-- `MWDATMockDevice` — for testing (can be test-only dependency)
-
-## Links
-
-- [CameraAccess sample](https://github.com/facebook/meta-wearables-dat-ios/tree/main/samples)
-- [Full integration guide](https://wearables.developer.meta.com/docs/build-integration-ios)
-- [Developer documentation](https://wearables.developer.meta.com/docs/develop/)
-
-## Display Access
-
-Add `MWDATDisplay` to the app target when rendering content on Meta Ray-Ban Display glasses. Display apps also need the core getting-started and permissions-registration setup: call `Wearables.configure()` at launch, configure Info.plist URL schemes, route app-open URLs to `Wearables.shared.handleUrl(_:)`, and complete Meta AI registration before creating a session.
-
-```swift
-import MWDATCore
-import MWDATDisplay
-```
-
-For a full Display app, mirror the DisplayAccess sample configuration: set `MWDAT.DAMEnabled = true`, keep `AppLinkURLScheme`, `MetaAppID`, `ClientToken`, and `TeamID`, include `UISupportedExternalAccessoryProtocols` with `com.meta.ar.wearable`, and add the link-lease Info.plist keys for external accessory, Bluetooth central, Bluetooth usage description, local network, and Bonjour. The sample also includes `bluetooth-peripheral` and `processing` background modes. Keep the URL callback path wired to `Wearables.shared.handleUrl(_:)`.
-
-Select display-capable hardware before creating the session, wait for the session to reach `.started`, then add and start Display. Use `SpecificDeviceSelector(device: selectedDevice.identifier)` when targeting a picked device; the selector takes a `DeviceIdentifier`. `AutoDeviceSelector` updates from `devicesStream()`, so create it before the user taps the Display action or wait for `activeDeviceStream()` to yield a non-nil device before calling `createSession(deviceSelector:)`.
-
-```swift
-let wearables = Wearables.shared
-let selector = AutoDeviceSelector(
-  wearables: wearables,
-  filter: { $0.supportsDisplay() }
-)
-let session = try wearables.createSession(deviceSelector: selector)
-let sessionErrorTask = Task {
-  for await error in session.errorStream() {
-    await MainActor.run {
-      showError(error.localizedDescription)
-    }
-  }
-}
-let sessionStarted = Task {
-  for await state in session.stateStream() {
-    if state == .started { return }
-  }
-}
-try session.start()
-await sessionStarted.value
-
-let display = try session.addDisplay()
-displayStateToken = display.statePublisher.listen { state in
-  Task { @MainActor in
-    if state == .started {
-      do {
-        try await display.send(
-          FlexBox(direction: .column, spacing: 12) {
-            Text("Bike ride", style: .heading)
-            Button(label: "Done", style: .primary, iconName: .checkmark)
-          }
-          .padding(24)
-          .background(.card)
-        )
-      } catch {
-        showError(error.localizedDescription)
-      }
-    }
-  }
-}
-display.start()
-```
-
-For device picker/settings UI, read `Wearables.shared.devicesStream()`, resolve each identifier with `deviceForIdentifier(_:)`, and display `nameOrId()`, `deviceType().rawValue`, `linkState`, and `compatibility()`. Keep link-state and compatibility listener tokens alive. If firmware compatibility reports `.deviceUpdateRequired`, offer `Wearables.shared.openFirmwareUpdate()`. If session start throws or streams `DeviceSessionError.datAppOnTheGlassesUpdateRequired`, offer `Wearables.shared.openDATGlassesAppUpdate()`.
-
-Keep `displayStateToken` alive while you need state updates, and cancel the session error task when the flow ends. Wait for `DisplayState.started` through `statePublisher` after `display.start()` before sending user-triggered content. If the user taps before Display is connected, queue the send and run it when `DisplayState.started` arrives, as DisplayAccess does. Reset the Display session when registration changes back to `.available` or `.unavailable`.
-
-Build exactly one root `DisplayableView` per send: use a root `FlexBox` for UI or a root `VideoPlayer` for video. Do not send `Text`, `Button`, `Image`, or `Icon` as roots. Use `FlexBox.onTap` and `Button(label:onClick:)` for interactions; each send replaces the active content and tap handlers. If SwiftUI is imported, qualify Display DSL names such as `MWDATDisplay.Text`, `MWDATDisplay.Button`, and `MWDATDisplay.Image`. Use `IconName` enum values such as `.gear`, not raw strings. For URL video, set `display.onPlaybackEvent` before sending `VideoPlayer(provider: .uri(...), codec: .mp4, onError: { ... })`, clear it after terminal events, call `sendVideoStop()` for early exits, and treat blank or non-HTTP(S) URLs as `DisplayError.invalidVideoURL`.
+After code changes, run the relevant suites and a build for the affected platform.
+Report passed, failed and untested paths accurately. Real glasses, remote OSC reception
+and device-specific experimental features require separate hardware validation.
+
+## Authoritative references
+
+Check the resolved **1.0.1** checkout's `CHANGELOG.md` and public `.swiftinterface`
+files when resolving API ambiguities. Latest docs can describe newer APIs.
+
+- [DAT 1.0.1 changelog](https://github.com/meta/meta-wearables-dat-ios/blob/1.0.1/CHANGELOG.md)
+- [DAT developer docs](https://wearables.developer.meta.com/docs/develop/)
+- [Full static reference](https://wearables.developer.meta.com/llms.txt?full=true)
+- Public DAT docs MCP: `https://mcp.developer.meta.com/wearables`, using
+  `search_dat_docs` if available. It needs no token, OAuth or custom auth header.
+- [MediaPipe iOS setup](https://ai.google.dev/edge/mediapipe/solutions/setup_ios)
+- [OSC 1.0 specification](https://opensoundcontrol.stanford.edu/spec-1_0.html)
+- Local [app README](mediapipe-ios/README.md) and [OSC contract](mediapipe-ios/OSC.md).

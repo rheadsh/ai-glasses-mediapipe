@@ -50,12 +50,16 @@ struct MediaPipeIOSApp: App {
     #if DEBUG
     // Start the test server when launched by XCUITests so tests can control
     // mock device setup via HTTP commands from the test process.
-    if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
+    if configuredWearables != nil, ProcessInfo.processInfo.arguments.contains("--ui-testing") {
       MockDeviceKit.shared.enable(config: MockDeviceKitConfig(initiallyRegistered: false))
 
       let portFilePath = ProcessInfo.processInfo.environment["MWDAT_TEST_SERVER_PORT_FILE"]
       Task {
-        try await MockDeviceKit.shared.startTestServer(portFilePath: portFilePath)
+        do {
+          _ = try await MockDeviceKit.shared.startTestServer(portFilePath: portFilePath)
+        } catch {
+          NSLog("[mediapipe-ios] Mock test server failed: \(error.localizedDescription)")
+        }
       }
     }
     #endif

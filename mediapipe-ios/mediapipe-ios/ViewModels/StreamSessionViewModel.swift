@@ -68,6 +68,9 @@ final class StreamSessionViewModel {
 
   // MARK: - Private
 
+  #if DEBUG
+  private let freezesPreviewForUITesting = ProcessInfo.processInfo.arguments.contains("--freeze-preview-for-ui-testing")
+  #endif
   private let sessionManager: DeviceSessionManager
   private let wearables: WearablesInterface
   private let visionAnalyzer = MediaPipeVisionAnalyzer()
@@ -288,6 +291,11 @@ final class StreamSessionViewModel {
   }
 
   private func handleVideoFrame(_ frame: VideoFrame) {
+    #if DEBUG
+    // Keep the accessibility tree stable for control tests. Native streaming continues;
+    // DAT integration and pipeline tests do not pass this flag and process live frames.
+    if freezesPreviewForUITesting && hasReceivedFirstFrame { return }
+    #endif
     if let image = frame.makeUIImage() {
       currentVideoFrame = image
       if !hasReceivedFirstFrame {

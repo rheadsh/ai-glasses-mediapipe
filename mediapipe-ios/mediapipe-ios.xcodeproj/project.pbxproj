@@ -46,6 +46,8 @@
 		B10000172FA0000100000001 /* pose_landmarker_lite.task in Resources */ = {isa = PBXBuildFile; fileRef = B10000162FA0000100000001 /* pose_landmarker_lite.task */; };
 		B10000192FA0000100000001 /* holistic_landmarker.task in Resources */ = {isa = PBXBuildFile; fileRef = B10000182FA0000100000001 /* holistic_landmarker.task */; };
 		B4AD2842346A5F8BAFE7275D /* Pods_mediapipe_iosTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 76B19C834B266CB4F7BC106E /* Pods_mediapipe_iosTests.framework */; };
+		C20000012FA0000100000001 /* OSCMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000002FA0000100000001 /* OSCMessage.swift */; };
+		C20000032FA0000100000001 /* OSCOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000022FA0000100000001 /* OSCOutput.swift */; };
 		E66CC01B2F3E1A9300B07379 /* plant.png in Resources */ = {isa = PBXBuildFile; fileRef = E66CC0192F3E1A9300B07379 /* plant.png */; };
 		E66CC01C2F3E1A9300B07379 /* plant.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = E66CC0182F3E1A9300B07379 /* plant.mp4 */; };
 		E66CC01D2F3E1A9300B07380 /* MWDATMockDeviceTestClient in Frameworks */ = {isa = PBXBuildFile; productRef = E66CC01E2F3E1A9300B07380 /* MWDATMockDeviceTestClient */; };
@@ -56,8 +58,6 @@
 		E6DA451F2E79A63100E3F688 /* MockDeviceKitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6DA451A2E79A63100E3F688 /* MockDeviceKitView.swift */; };
 		E6FD3BCE2EB4D53A00E7FE5D /* NonStreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6FD3BCD2EB4D53A00E7FE5D /* NonStreamView.swift */; };
 		FEEE00012F95000100000001 /* DeviceSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEEE00002F95000100000001 /* DeviceSessionManager.swift */; };
-		C20000012FA0000100000001 /* OSCMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000002FA0000100000001 /* OSCMessage.swift */; };
-		C20000032FA0000100000001 /* OSCOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000022FA0000100000001 /* OSCOutput.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -135,6 +135,8 @@
 		B10000142FA0000100000001 /* face_landmarker.task */ = {isa = PBXFileReference; lastKnownFileType = file; path = face_landmarker.task; sourceTree = "<group>"; };
 		B10000162FA0000100000001 /* pose_landmarker_lite.task */ = {isa = PBXFileReference; lastKnownFileType = file; path = pose_landmarker_lite.task; sourceTree = "<group>"; };
 		B10000182FA0000100000001 /* holistic_landmarker.task */ = {isa = PBXFileReference; lastKnownFileType = file; path = holistic_landmarker.task; sourceTree = "<group>"; };
+		C20000002FA0000100000001 /* OSCMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSCMessage.swift; sourceTree = "<group>"; };
+		C20000022FA0000100000001 /* OSCOutput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSCOutput.swift; sourceTree = "<group>"; };
 		D2FF178A08E5EA770B2DBE78 /* Pods-mediapipe-iosUITests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-mediapipe-iosUITests.debug.xcconfig"; path = "Target Support Files/Pods-mediapipe-iosUITests/Pods-mediapipe-iosUITests.debug.xcconfig"; sourceTree = "<group>"; };
 		E66CC00D2F3E05D900B07379 /* mediapipe-iosUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "mediapipe-iosUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		E66CC0182F3E1A9300B07379 /* plant.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = plant.mp4; sourceTree = "<group>"; };
@@ -147,8 +149,6 @@
 		E6DA451A2E79A63100E3F688 /* MockDeviceKitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockDeviceKitView.swift; sourceTree = "<group>"; };
 		E6FD3BCD2EB4D53A00E7FE5D /* NonStreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NonStreamView.swift; sourceTree = "<group>"; };
 		FEEE00002F95000100000001 /* DeviceSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceSessionManager.swift; sourceTree = "<group>"; };
-		C20000002FA0000100000001 /* OSCMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSCMessage.swift; sourceTree = "<group>"; };
-		C20000022FA0000100000001 /* OSCOutput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSCOutput.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */

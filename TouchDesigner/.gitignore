@@ -1,0 +1,4 @@
+__pycache__/
+Backup/
+*.toe.bak
+*.tox.bak

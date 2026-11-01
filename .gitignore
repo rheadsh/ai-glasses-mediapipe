@@ -1,0 +1,55 @@
+# macOS metadata
+.DS_Store
+._*
+.Spotlight-V100/
+.Trashes/
+
+# Xcode build products and machine-specific state
+DerivedData/
+build/
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+*.xcarchive/
+*.ipa
+*.dSYM/
+*.dSYM.zip
+
+# Generated dependencies and local package caches
+Pods/
+.build/
+Carthage/Build/
+.bundle/
+vendor/bundle/
+
+# Test results and coverage artifacts
+*.xcresult/
+*.profraw
+*.profdata
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Python bytecode and local environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# TouchDesigner autosaves, backups, and generated diagnostics
+/TouchDesigner/Backup/
+/TouchDesigner/AutoSave/
+*.toe.bak
+*.tox.bak
+/TouchDesigner/build_report.txt
+/TouchDesigner/validation.json
+
+# Temporary editor files and runtime logs
+*.swp
+*.swo
+*~
+*.log
+
+# Keep dependency lockfiles, shared Xcode configuration, bundled models,
+# and the main TouchDesigner .toe/.tox examples under version control.
