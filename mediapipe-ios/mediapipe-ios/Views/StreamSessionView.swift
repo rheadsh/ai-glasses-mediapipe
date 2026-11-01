@@ -75,13 +75,22 @@ private struct StreamSessionContent: View {
 
         // The codec is fixed when the stream starts, so it can only change while stopped.
         Toggle(isOn: $viewModel.keepsRunningWhenLocked) {
-          Label("Con pantalla bloqueada", systemImage: "lock.iphone")
+          Label("Pantalla bloqueada", systemImage: "lock.iphone")
             .font(.subheadline.weight(.semibold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
         }
         .toggleStyle(.button)
+        .tint(.green)
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        // Same capsule as the OSC button so it stays readable over the video preview.
+        .background(.ultraThinMaterial, in: Capsule())
         .disabled(viewModel.isStreaming)
+        .accessibilityLabel("Seguir con pantalla bloqueada")
+        .accessibilityValue(viewModel.keepsRunningWhenLocked ? "Activado" : "Desactivado")
         .accessibilityIdentifier("background_mode_toggle")
       }
+      .padding(.horizontal, 8)
       .padding(.bottom, 8)
     }
     // The camera screens are drawn on black; a dark scheme keeps the status bar, menus,

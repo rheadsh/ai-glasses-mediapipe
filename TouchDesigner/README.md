@@ -96,6 +96,7 @@ from the glasses.
 
 ## Robustness and limits
 
+- Hand and gesture frames are published only after their handedness has arrived.
 - Incomplete frames never replace the last complete frame. Chunks with different
   identifiers are never mixed.
 - After one second without complete results, the tables and active controls are cleared.
@@ -114,11 +115,13 @@ holds the tables, CHOPs, and drawing. Both are embedded in the project when it i
 saves the `.toe` and `.tox` in this folder. Change its `OUT` variable if you move
 the repository. Run it from the Textport with `exec(open('/path/build_project.py').read())`.
 
+The `.toe` and `.tox` embed copies of `osc_protocol.py` and `td_runtime.py`. After changing either file, rebuild the component with `build_project.py` so the project uses the new code.
+
 To validate the parser without opening TouchDesigner:
 
 ```bash
 python3 -m unittest discover -s . -p 'test_*.py' -v
 ```
 
-The tests cover the 11 tasks, incomplete chunks, old packets, timeout, clearing,
+The tests cover the 11 tasks, hand frames that wait for handedness, incomplete chunks, old packets, timeout, clearing,
 sequence restart, conflicting sources, and the size of the demo packets.

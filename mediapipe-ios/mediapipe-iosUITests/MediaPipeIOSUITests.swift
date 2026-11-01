@@ -130,7 +130,7 @@ final class MediaPipeIOSUITests: XCTestCase {
       let connect = app.buttons["Conectar mis lentes"]
       XCTAssertTrue(connect.waitForExistence(timeout: 10), "Connect button missing in \(name)")
       XCTAssertTrue(connect.isHittable, "Connect button not hittable in \(name)")
-      attachScreenshot("home-\(name)")
+      try await attachScreenshot("home-\(name)")
     }
 
     try await pairDeviceWithCameraResources()
@@ -144,7 +144,7 @@ final class MediaPipeIOSUITests: XCTestCase {
         XCTAssertTrue(element.waitForExistence(timeout: 5), "\(id) missing in \(name)")
         XCTAssertTrue(element.isHittable, "\(id) not hittable in \(name)")
       }
-      attachScreenshot("setup-\(name)")
+      try await attachScreenshot("setup-\(name)")
     }
 
     try await startStreaming()
@@ -156,11 +156,13 @@ final class MediaPipeIOSUITests: XCTestCase {
         XCTAssertTrue(element.isHittable, "\(id) not hittable in \(name)")
       }
       XCTAssertTrue(app.buttons["Stop streaming"].isHittable, "Stop button not hittable in \(name)")
-      attachScreenshot("streaming-\(name)")
+      try await attachScreenshot("streaming-\(name)")
     }
   }
 
-  private func attachScreenshot(_ name: String) {
+  private func attachScreenshot(_ name: String) async throws {
+    // Let the appearance change finish rendering before capturing.
+    try await Task.sleep(for: .milliseconds(800))
     let attachment = XCTAttachment(screenshot: app.screenshot())
     attachment.name = name
     attachment.lifetime = .keepAlways

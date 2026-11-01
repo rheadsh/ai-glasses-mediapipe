@@ -177,6 +177,7 @@ Test suites under `mediapipe-ios/mediapipe-iosTests/`:
 - `OSCOutputIntegrationTests`: isolated defaults, loopback UDP receipt and terminal clear.
 - `DATStreamingIntegrationTests`: signed host app, MockDeviceKit streaming and capture.
 - `VideoFrameImageConverterTests`: pixel-buffer and real HEVC decoding without the GPU.
+- UI appearance test: controls must stay visible and tappable in light and dark.
 - `TestSupport.swift`: required fixtures and cancellable, deadline-bounded state waits.
 
 `mediapipe-iosUITests/MediaPipeIOSUITests.swift` covers app flows using the async

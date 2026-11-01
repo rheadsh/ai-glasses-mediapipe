@@ -20,6 +20,8 @@ The app UI is in Spanish. Labels are shown here in English with the Spanish labe
 - Boxes, masks, landmarks, classification, gestures, embeddings, latency, and a frame counter drawn over the preview.
 - A single active model: switching tasks releases the previous runtime before creating the next one.
 - Back pressure: if MediaPipe is still busy, the new frame is dropped instead of queueing work.
+- Optional locked-screen mode: compressed HEVC stream, CPU decoding, and no preview work in the background, so analysis and OSC can keep running with the iPhone locked.
+- Light and dark appearance support.
 - Photo capture and `MWDATMockDevice` support in Debug builds.
 
 ## Architecture
@@ -38,6 +40,8 @@ MWDATCamera.VideoFrame
                                       ▼
                                SwiftUI overlay
 ```
+
+Frames are converted off the main actor (and dropped while the main actor is still handling the previous one). With the default `raw` codec DAT converts them (`makeUIImage()`); in locked-screen mode `VideoFrameImageConverter` decodes the compressed HEVC samples on the CPU with VideoToolbox.
 
 `StreamSessionViewModel` coordinates the session and the observable state. `MediaPipeVisionAnalyzer` wraps the Tasks, runs everything on a serial queue, and keeps exactly one runtime. `DetectionGeometry` keeps the conversion between model coordinates and the `aspectFill` preview separate and testable.
 
@@ -93,8 +97,18 @@ Debug and Release both use `META_APP_ID = 0`, the bundle ID `com.rheadsh.mediapi
 6. In **Interactive segmentation**, tap the object in the preview that you want to segment.
 7. Use the viewfinder button to pause or resume MediaPipe without stopping the stream.
 8. Use the camera button to capture a photo and **Stop streaming** to end the session.
+9. To keep running with the iPhone locked, turn on **Locked screen** (`Pantalla bloqueada`) *before* starting the stream; it cannot change while streaming. See below.
 
 Switching tasks invalidates pending results, releases the previous model, and prepares a single new instance on the inference queue while the DAT stream stays up.
+
+## Locked-screen mode
+
+DAT pauses `VideoCodec.raw` streams when the app goes to the background. With **Locked screen** on, the app streams compressed HEVC (`VideoCodec.hvc1`), which DAT keeps delivering in the background, decodes it with `VideoFrameImageConverter` (CPU only, since the GPU is not available), stops refreshing the preview while the app is not active, and keeps running MediaPipe and OSC. The Bluetooth and external-accessory background modes in `Info.plist` keep the app alive while the glasses stream.
+
+- DAT can report `Critical error, the stream should end` (`StreamError.videoStreamingError`) when the phone locks or the app returns. The app judges by frames: if they keep arriving it shows nothing; if they stop for 5 seconds it ends the stream, clears OSC, and shows the error. Other errors are always shown. Every DAT error is logged (`[mediapipe-ios] DAT stream error: ...`).
+- The app also asks iOS for extra background time when it leaves the foreground while streaming in this mode.
+- iOS can still suspend the app (memory, battery saver, thermal state). Inference runs on the CPU only and can be slower than in the foreground.
+- Verified with MockDeviceKit and real HEVC samples. **Not verified** on real glasses with a locked iPhone: validate it on your hardware.
 
 ## Build and test
 
@@ -122,11 +136,12 @@ The tests are split by responsibility:
 - `MediaPipePipelineTests`: model catalog, real models for all 11 tasks, and their OSC data.
 - `OSCEncodingTests`: packet format, chunking, frame IDs, and mappings.
 - `OSCOutputIntegrationTests`: isolated persistent destination and loopback UDP receipt, including the clear message.
-- `DATStreamingIntegrationTests`: streaming and photo capture with MockDeviceKit 1.0.1.
+- `DATStreamingIntegrationTests`: streaming and photo capture with MockDeviceKit 1.0.1, including the compressed stream, background behavior, and DAT video errors.
+- `VideoFrameImageConverterTests`: pixel-buffer and real HEVC decoding without the GPU.
 
 DAT uses global state, so the suite runs its tests serially, waits for states with a timeout, and uses `await MockDeviceKit.shared.disable()` to finish cleanup.
 
-For the UI flows (registration, streaming, photo capture, selection, device availability, and OSC settings), use the same command with `-only-testing:mediapipe-iosUITests`. The app launches with `--ui-testing`, uses a unique port file per test, disables inference, and keeps the first frame in the preview with `--freeze-preview-for-ui-testing` during control automation. The native stream stays active; the streaming and inference tests do not use that flag.
+For the UI flows (registration, streaming, photo capture, selection, device availability, OSC settings, and light/dark appearance), use the same command with `-only-testing:mediapipe-iosUITests`. The app launches with `--ui-testing`, uses a unique port file per test, disables inference, and keeps the first frame in the preview with `--freeze-preview-for-ui-testing` during control automation. The native stream stays active; the streaming and inference tests do not use that flag.
 
 ## OSC output
 
@@ -138,6 +153,8 @@ All 11 Vision Tasks can send their results over OSC/UDP to interactive installat
 - MediaPipe runs one inference at a time on a `userInitiated` queue.
 - Lite0 is the default for real-time use; Lite2 can be slower, especially in the simulator.
 - The UI receives only finished results, delivered through the `MainActor`.
+- Frame conversion runs off the main actor and frames are dropped while the previous one is still being handled.
+- The preview is not refreshed while the app is not active.
 
 ## References
 

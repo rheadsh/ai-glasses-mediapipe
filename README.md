@@ -24,6 +24,8 @@ TouchDesigner: receiver → frame reconstruction → tables → CHOP/TOP outputs
 - All 11 MediaPipe Vision Tasks running on-device with bundled models, switchable live, with overlays, inference timing, and pause/resume.
 - Configurable OSC destination, UDP port, transmission rate, and test message.
 - Structured OSC output for detections, landmarks, classifications, gestures, embeddings, and reduced segmentation masks.
+- Optional background mode: keep analysis and OSC running with the iPhone locked ([details](#keep-running-with-the-iphone-locked)).
+- Light and dark appearance support; the camera screens are always drawn on black with a dark system scheme.
 - MockDeviceKit support for development and testing without physical glasses.
 - A TouchDesigner receiver, reusable component, visual monitor, and synthetic demo sender.
 
@@ -132,7 +134,7 @@ The app already includes its callback URL scheme, external accessory protocol, U
 
 By default the app streams with DAT's `raw` codec, which DAT **pauses when the app goes to the background**. To keep analysis and OSC running while the phone is locked or another app is in front:
 
-1. Before starting the stream, turn on **With locked screen** (`Con pantalla bloqueada`), next to the OSC button. The setting is remembered and cannot change while streaming.
+1. Before starting the stream, turn on **Locked screen** (`Pantalla bloqueada`), next to the OSC button. The setting is remembered and cannot change while streaming.
 2. Start the stream and, if you use OSC, enable it as usual. Then lock the phone.
 
 In this mode the app streams compressed HEVC (`VideoCodec.hvc1`), decodes it on the CPU with VideoToolbox, stops refreshing the preview while it is not on screen, and keeps running MediaPipe and sending OSC. The Bluetooth and external-accessory background modes already declared in `Info.plist` are what let iOS keep the app alive while the glasses stream.
@@ -275,10 +277,12 @@ The model and pipeline tests run real inference on all 11 tasks, so they take no
 The test suites cover:
 
 - Geometry normalization, clipping, and aspect-fill coordinate mapping.
-- Real inference with all 11 bundled tasks and both object detection models.
+- Real inference with all 11 bundled tasks and both object detection models, through the same analyzer the app uses.
 - OSC encoding, packet bounds, task payloads, isolated configuration, and loopback delivery/cleanup.
-- MockDeviceKit streaming and photo capture with deterministic async teardown.
+- MockDeviceKit streaming and photo capture with deterministic async teardown, including the compressed (`hvc1`) stream, the preview pausing while the app is not active, and DAT video errors.
+- `VideoFrameImageConverter` decoding pixel buffers and real HEVC samples on the CPU, without the GPU.
 - UI registration, model/task selection, capture, device availability, and OSC settings.
+- UI controls staying visible and tappable in light and dark appearance (screenshots are attached to the test result).
 - Receiver handling of incomplete frames, old packets, timeouts, resets, conflicting sources, and demo packet sizes.
 
 DAT and MockDeviceKit tests run serially because they share SDK state. UI control tests disable inference and freeze the displayed preview after the first real mock frame using `--freeze-preview-for-ui-testing`; native streaming remains active. Streaming and model tests do not use that preview-freezing flag.
@@ -292,4 +296,7 @@ Mock and synthetic-data tests do not establish physical-glasses performance or d
 - Keep model initialization and inference off the main thread, with one active runtime and bounded pending work.
 - Preserve task-specific OSC payloads when copying analysis results or changing inference timing.
 - Update the OSC contract, receiver, and protocol tests together when changing message formats.
+- Frames in the locked-screen (`hvc1`) mode must be decoded with `VideoFrameImageConverter` (CPU/VideoToolbox), never with the GPU, and no SwiftUI preview work should run while the app is not active.
+- Colors must work in both appearances: use system colors or asset colors with both variants. A white card on the black camera screens must set a light color scheme for its text.
+- DAT's `videoStreamingError` is judged by whether frames keep arriving, not by its message (see [Keep running with the iPhone locked](#keep-running-with-the-iphone-locked)).
 - DAT also ships Display, Inputs, Motion, and Speech capabilities. These are not all implemented by this app. Check the pinned SDK, hardware support, permissions, and experimental-feature restrictions before extending it.
