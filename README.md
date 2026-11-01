@@ -145,7 +145,7 @@ Limits to know about:
 - iOS may still suspend or terminate a background app (memory pressure, battery saver, thermal state). Stream interruptions are reported by DAT and clear the OSC state as usual.
 - Use the same Wi-Fi network; locking the phone does not change local-network access, but some networks put sleeping devices to sleep.
 - Inference runs on the CPU only (no GPU in the background), so rates can be lower than in the foreground.
-- This was verified with MockDeviceKit and with real HEVC samples decoded by `VideoFrameImageConverter`. It has **not** been verified on real glasses with a locked iPhone; validate it with your hardware before relying on it in an installation.
+- Verified with MockDeviceKit, with real HEVC samples decoded by `VideoFrameImageConverter`, and on real glasses with a locked iPhone. Behavior can still vary with the glasses firmware, the iOS version, and the network, so check it again on the hardware you will use in an installation.
 
 For development without glasses, use the Debug menu to enable MockDeviceKit, pair mock glasses, power them on, unfold them, and simulate wearing them. Configure a video/image feed for streaming and photo capture.
 

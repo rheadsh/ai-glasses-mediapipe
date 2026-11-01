@@ -108,7 +108,7 @@ DAT pauses `VideoCodec.raw` streams when the app goes to the background. With **
 - DAT can report `Critical error, the stream should end` (`StreamError.videoStreamingError`) when the phone locks or the app returns. The app judges by frames: if they keep arriving it shows nothing; if they stop for 5 seconds it ends the stream, clears OSC, and shows the error. Other errors are always shown. Every DAT error is logged (`[mediapipe-ios] DAT stream error: ...`).
 - The app also asks iOS for extra background time when it leaves the foreground while streaming in this mode.
 - iOS can still suspend the app (memory, battery saver, thermal state). Inference runs on the CPU only and can be slower than in the foreground.
-- Verified with MockDeviceKit and real HEVC samples. **Not verified** on real glasses with a locked iPhone: validate it on your hardware.
+- Verified with MockDeviceKit, real HEVC samples, and real glasses with a locked iPhone. Re-check it on the hardware and iOS version you will use in an installation.
 
 ## Build and test
 

@@ -81,7 +81,8 @@ lifetimes explicit, and finish session cleanup when the flow ends.
   mode uses `.hvc1`, which keeps streaming, but frames arrive compressed: decode them with
   `VideoFrameImageConverter` (CPU/VideoToolbox). Never use `makeUIImage()`, CIContext or
   Metal for frames in that mode, and do no SwiftUI preview work while the app is not active.
-  Real-glasses behavior with a locked iPhone needs hardware validation.
+  This mode has been validated on real glasses with a locked iPhone; re-check it after DAT,
+  iOS, or glasses firmware changes.
 - Registration, permission checks/requests, URL handling and update navigation are
   async/throwing. Use the exact signatures from the pinned SDK.
 - `DeviceSession.start()` and `addCamera(config:)` are synchronous/throwing;
