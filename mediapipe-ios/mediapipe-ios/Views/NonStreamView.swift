@@ -94,7 +94,7 @@ struct NonStreamView: View {
             .foregroundStyle(.white)
 
           Text(
-            "Inicia el stream para ejecutar una Vision Task de MediaPipe sobre la cámara de tus gafas."
+            "Inicia el stream para ejecutar una Vision Task de MediaPipe sobre la cámara de tus lentes."
           )
           .font(.system(size: 15))
           .multilineTextAlignment(.center)
@@ -170,6 +170,8 @@ struct NonStreamView: View {
             .foregroundStyle(.primary)
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity, minHeight: 56)
+            // White card: resolve .primary/.secondary for a light background in any appearance.
+            .environment(\.colorScheme, .light)
             .background(.white, in: RoundedRectangle(cornerRadius: 14))
           }
           .accessibilityLabel("Cambiar Vision Task de MediaPipe")
@@ -202,6 +204,7 @@ struct NonStreamView: View {
               .foregroundStyle(.primary)
               .padding(.horizontal, 16)
               .frame(maxWidth: .infinity, minHeight: 56)
+              .environment(\.colorScheme, .light)
               .background(.white, in: RoundedRectangle(cornerRadius: 14))
             }
             .accessibilityLabel("Cambiar modelo de MediaPipe")
@@ -290,6 +293,7 @@ private struct VisionTaskConfigurationMessage: View {
     }
     .padding(12)
     .frame(maxWidth: .infinity, alignment: .leading)
+    .environment(\.colorScheme, .light)
     .background(.white.opacity(0.92), in: RoundedRectangle(cornerRadius: 12))
     .accessibilityIdentifier("vision_task_configuration_message")
   }
@@ -351,7 +355,7 @@ struct GettingStartedSheetView: View {
       VStack(spacing: 12) {
         TipItemView(
           resource: .videoIcon,
-          text: "Primero, la app necesita permiso para usar la cámara de tus gafas."
+          text: "Primero, la app necesita permiso para usar la cámara de tus lentes."
         )
         TipItemView(
           resource: .tapIcon,

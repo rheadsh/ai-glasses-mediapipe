@@ -52,13 +52,19 @@ final class StreamSessionViewModel {
     }
   }
 
+  /// Opt-in: stream with compressed HEVC so DAT keeps delivering frames while the app is in the
+  /// background or the phone is locked. DAT pauses `VideoCodec.raw` streams in the background.
+  /// Applies to the next stream; it cannot change while streaming.
+  var keepsRunningWhenLocked: Bool = false {
+    didSet { defaults.set(keepsRunningWhenLocked, forKey: Self.keepRunningWhenLockedKey) }
+  }
+
   var capturedPhoto: UIImage?
   var showPhotoPreview: Bool = false
   var showPhotoCaptureError: Bool = false
   var isCapturingPhoto: Bool = false
 
   var hasActiveDevice: Bool { sessionManager.hasActiveDevice }
-  var isDeviceSessionReady: Bool { sessionManager.isReady }
 
   var isStreaming: Bool { streamingStatus != .stopped }
   var isSelectedVisionTaskConfigured: Bool { selectedVisionTask.isConfigured }
@@ -71,10 +77,24 @@ final class StreamSessionViewModel {
   #if DEBUG
   private let freezesPreviewForUITesting = ProcessInfo.processInfo.arguments.contains("--freeze-preview-for-ui-testing")
   #endif
+  private static let keepRunningWhenLockedKey = "background.keepRunningWhenLocked"
+  private let defaults: UserDefaults
+  private let frameConverter = VideoFrameImageConverter()
+  private var streamUsesCompressedVideo = false
+  private var isAppActive = true
+  private var deliveredFrameCount = 0
+  private var frameWatchdog: Task<Void, Never>?
+  /// How long frames may stop after a video error while locked before the stream is ended.
+  var backgroundErrorGrace: Duration = .seconds(5)
+  private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
   private let sessionManager: DeviceSessionManager
   private let wearables: WearablesInterface
   private let visionAnalyzer = MediaPipeVisionAnalyzer()
   private var analysisGeneration: Int = 0
+  private var isStartingSession = false
+  private var needsAnalyzerPrepare = false
+  private var photoCaptureTimeout: Task<Void, Never>?
+  private let frameGate = FrameGate()
   private var stream: MWDATCamera.Stream?
   private var camera: MWDATCamera.Camera?
 
@@ -85,8 +105,10 @@ final class StreamSessionViewModel {
 
   // MARK: - Init
 
-  init(wearables: WearablesInterface) {
+  init(wearables: WearablesInterface, defaults: UserDefaults = .standard) {
     self.wearables = wearables
+    self.defaults = defaults
+    self.keepsRunningWhenLocked = defaults.bool(forKey: Self.keepRunningWhenLockedKey)
     self.sessionManager = DeviceSessionManager(wearables: wearables)
     #if DEBUG
       // UI automation validates controls while MockDeviceKit continuously emits frames.
@@ -101,6 +123,11 @@ final class StreamSessionViewModel {
   // MARK: - Public API
 
   func handleStartStreaming() async {
+    // A second tap while permissions or the session are still resolving must not
+    // create a second Camera.
+    guard !isStartingSession, streamingStatus == .stopped else { return }
+    isStartingSession = true
+    defer { isStartingSession = false }
     let permission = Permission.camera
     do {
       var status = try await wearables.checkPermissionStatus(permission)
@@ -135,6 +162,12 @@ final class StreamSessionViewModel {
     analysisGeneration += 1
     resetVisionAnalysisResults()
     visionAnalyzer.reset()
+    // The runtime was released: reload it before the next stream starts.
+    visionAnalysisStatus = .preparing
+    needsAnalyzerPrepare = true
+    finishPhotoCapture()
+    endBackgroundTask()
+    frameWatchdog?.cancel()
     sessionManager.cleanup()
   }
 
@@ -159,7 +192,7 @@ final class StreamSessionViewModel {
     analysisGeneration += 1
     resetVisionAnalysisResults()
     visionAnalyzer.reset()
-    guard MediaPipeObjectDetector.bundledModelPath(for: model) != nil else {
+    guard model.bundledModelPath != nil else {
       visionAnalysisStatus = .unavailable(
         "No se encontró \(model.resourceName).tflite en el bundle."
       )
@@ -171,6 +204,8 @@ final class StreamSessionViewModel {
   func selectInteractiveSegmentationPoint(_ point: CGPoint) {
     guard selectedVisionTask == .interactiveSegmentation else { return }
     interactiveSegmentationPoint = point
+    // Results computed with the previous point must not be published.
+    analysisGeneration += 1
     resetVisionAnalysisResults()
   }
 
@@ -184,7 +219,47 @@ final class StreamSessionViewModel {
     if !success {
       isCapturingPhoto = false
       showPhotoCaptureError = true
+      return
     }
+    // The SDK may never answer (stream lost, capture dropped): do not block later captures.
+    photoCaptureTimeout = Task { [weak self] in
+      try? await Task.sleep(for: .seconds(10))
+      guard !Task.isCancelled, let self, self.isCapturingPhoto else { return }
+      self.finishPhotoCapture()
+      self.showPhotoCaptureError = true
+    }
+  }
+
+  private func finishPhotoCapture() {
+    photoCaptureTimeout?.cancel()
+    photoCaptureTimeout = nil
+    isCapturingPhoto = false
+  }
+
+  /// Called from the scene phase. While streaming with `keepsRunningWhenLocked`, the app asks
+  /// iOS for background execution time; the bluetooth / external-accessory background modes
+  /// keep it running while the glasses stream.
+  func appActivityChanged(isActive: Bool) {
+    isAppActive = isActive
+    if isActive {
+      endBackgroundTask()
+    } else if isStreaming && streamUsesCompressedVideo {
+      beginBackgroundTask()
+    }
+  }
+
+  private func beginBackgroundTask() {
+    guard backgroundTask == .invalid else { return }
+    backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "mediapipe-ios.stream") {
+      [weak self] in
+      Task { @MainActor in self?.endBackgroundTask() }
+    }
+  }
+
+  private func endBackgroundTask() {
+    guard backgroundTask != .invalid else { return }
+    UIApplication.shared.endBackgroundTask(backgroundTask)
+    backgroundTask = .invalid
   }
 
   func dismissError() {
@@ -204,6 +279,10 @@ final class StreamSessionViewModel {
   // MARK: - Private
 
   private func startSession() async {
+    if needsAnalyzerPrepare {
+      needsAnalyzerPrepare = false
+      prepareSelectedVisionTask()
+    }
     let deviceSession: DeviceSession
     do {
       deviceSession = try await sessionManager.getSession()
@@ -222,8 +301,9 @@ final class StreamSessionViewModel {
       return
     }
 
+    streamUsesCompressedVideo = keepsRunningWhenLocked
     let config = StreamConfiguration(
-      videoCodec: VideoCodec.raw,
+      videoCodec: streamUsesCompressedVideo ? VideoCodec.hvc1 : VideoCodec.raw,
       resolution: StreamingResolution.low,
       frameRate: 24
     )
@@ -249,12 +329,24 @@ final class StreamSessionViewModel {
       Task { @MainActor in self?.handleStateChange(state) }
     }
 
+    // Convert off the main actor and drop frames while the main actor is still
+    // consuming the previous one, so preview work cannot pile up.
+    let gate = frameGate
+    let converter = frameConverter
+    let compressed = streamUsesCompressedVideo
     videoFrameListenerToken = stream.videoFramePublisher.listen { [weak self] frame in
-      Task { @MainActor in self?.handleVideoFrame(frame) }
+      guard gate.tryEnter() else { return }
+      // Compressed frames are decoded on the CPU/VideoToolbox: the GPU is off limits in the
+      // background. `makeUIImage()` is only used for the foreground-only raw stream.
+      let image = compressed ? converter.image(from: frame.sampleBuffer) : frame.makeUIImage()
+      Task { @MainActor in
+        gate.leave()
+        self?.handleVideoFrame(image)
+      }
     }
 
     errorListenerToken = stream.errorPublisher.listen { [weak self] error in
-      Task { @MainActor in self?.handleError(error) }
+      Task { @MainActor in self?.handleStreamError(error) }
     }
 
     photoDataListenerToken = stream.photoDataPublisher.listen { [weak self] data in
@@ -281,6 +373,9 @@ final class StreamSessionViewModel {
       hasReceivedFirstFrame = false
       analysisGeneration += 1
       resetVisionAnalysisResults()
+      finishPhotoCapture()
+      endBackgroundTask()
+      frameWatchdog?.cancel()
       sessionManager.stopCurrentSession()
     case .waitingForDevice, .starting, .stopping, .paused:
       oscOutput.clear()
@@ -290,14 +385,17 @@ final class StreamSessionViewModel {
     }
   }
 
-  private func handleVideoFrame(_ frame: VideoFrame) {
+  private func handleVideoFrame(_ image: UIImage?) {
     #if DEBUG
     // Keep the accessibility tree stable for control tests. Native streaming continues;
     // DAT integration and pipeline tests do not pass this flag and process live frames.
     if freezesPreviewForUITesting && hasReceivedFirstFrame { return }
     #endif
-    if let image = frame.makeUIImage() {
-      currentVideoFrame = image
+    if let image {
+      deliveredFrameCount += 1
+      // No SwiftUI preview work while the app is not on screen (e.g. phone locked);
+      // analysis and OSC keep running.
+      if isAppActive { currentVideoFrame = image }
       if !hasReceivedFirstFrame {
         hasReceivedFirstFrame = true
       }
@@ -310,7 +408,7 @@ final class StreamSessionViewModel {
     let generation = analysisGeneration
     let modelPath: String?
     if selectedVisionTask == .objectDetection {
-      modelPath = MediaPipeObjectDetector.bundledModelPath(for: selectedObjectDetectionModel)
+      modelPath = selectedObjectDetectionModel.bundledModelPath
     } else {
       modelPath = selectedVisionTask.bundledModelPath
     }
@@ -383,15 +481,40 @@ final class StreamSessionViewModel {
     analyzedFrameCount = 0
   }
 
-  private func handleError(_ error: StreamError) {
+  func handleStreamError(_ error: StreamError) {
     let message = error.localizedDescription
+    NSLog("[mediapipe-ios] DAT stream error: \(error) (appActive=\(isAppActive), compressed=\(streamUsesCompressedVideo))")
+    // A failed photo capture is reported here; unblock the capture button.
+    finishPhotoCapture()
+
+    // DAT can report `videoStreamingError` ("the stream should end") when the phone locks
+    // or the app comes back, although frames keep arriving. Judge by the frames, not the
+    // message: keep going while they flow; end the stream (and tell the user) if they stop.
+    if error == .videoStreamingError, isStreaming {
+      superviseFrames(after: error)
+      return
+    }
     if message != errorMessage {
       showError(message)
     }
   }
 
+  private func superviseFrames(after error: StreamError) {
+    frameWatchdog?.cancel()
+    let baseline = deliveredFrameCount
+    frameWatchdog = Task { [weak self, grace = backgroundErrorGrace] in
+      try? await Task.sleep(for: grace)
+      guard !Task.isCancelled, let self, self.isStreaming else { return }
+      if self.deliveredFrameCount == baseline {
+        NSLog("[mediapipe-ios] No frames after a video error while locked; ending the stream")
+        self.stopSession()
+        self.showError(error.localizedDescription)
+      }
+    }
+  }
+
   private func handlePhotoData(_ data: PhotoData) {
-    isCapturingPhoto = false
+    finishPhotoCapture()
     if let image = UIImage(data: data.data) {
       capturedPhoto = image
       showPhotoPreview = true
@@ -401,5 +524,25 @@ final class StreamSessionViewModel {
   private func showError(_ message: String) {
     errorMessage = message
     showError = true
+  }
+}
+
+/// Lets one frame at a time cross from the DAT callback thread to the main actor.
+private final class FrameGate: @unchecked Sendable {
+  private let lock = NSLock()
+  private var busy = false
+
+  func tryEnter() -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    if busy { return false }
+    busy = true
+    return true
+  }
+
+  func leave() {
+    lock.lock()
+    busy = false
+    lock.unlock()
   }
 }

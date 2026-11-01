@@ -42,7 +42,7 @@ final class MediaPipeIOSUITests: XCTestCase {
   }
 
   func testLaunchWithoutDeviceShowsHomeScreen() {
-    XCTAssertTrue(app.buttons["Conectar mis gafas"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["Conectar mis lentes"].waitForExistence(timeout: 10))
   }
 
   func testRegisterPairStartAndStopStream() async throws {
@@ -119,6 +119,54 @@ final class MediaPipeIOSUITests: XCTestCase {
     _ = try await streamingButton(enabled: false)
   }
 
+  func testScreensRemainUsableInLightAndDarkAppearance() async throws {
+    let original = XCUIDevice.shared.appearance
+    defer { XCUIDevice.shared.appearance = original }
+    let appearances: [(String, XCUIDevice.Appearance)] = [("light", .light), ("dark", .dark)]
+
+    // Home screen (before registration).
+    for (name, appearance) in appearances {
+      XCUIDevice.shared.appearance = appearance
+      let connect = app.buttons["Conectar mis lentes"]
+      XCTAssertTrue(connect.waitForExistence(timeout: 10), "Connect button missing in \(name)")
+      XCTAssertTrue(connect.isHittable, "Connect button not hittable in \(name)")
+      attachScreenshot("home-\(name)")
+    }
+
+    try await pairDeviceWithCameraResources()
+    for (name, appearance) in appearances {
+      XCUIDevice.shared.appearance = appearance
+      let start = try await streamingButton(enabled: true)
+      XCTAssertTrue(start.isHittable, "Start button not hittable in \(name)")
+      for id in ["select_mediapipe_task_button", "select_mediapipe_model_button",
+                 "osc_settings_button", "background_mode_toggle"] {
+        let element = app.descendants(matching: .any)[id]
+        XCTAssertTrue(element.waitForExistence(timeout: 5), "\(id) missing in \(name)")
+        XCTAssertTrue(element.isHittable, "\(id) not hittable in \(name)")
+      }
+      attachScreenshot("setup-\(name)")
+    }
+
+    try await startStreaming()
+    for (name, appearance) in appearances {
+      XCUIDevice.shared.appearance = appearance
+      for id in ["capture_photo_button"] {
+        let element = app.buttons[id]
+        XCTAssertTrue(element.waitForExistence(timeout: 5), "\(id) missing in \(name)")
+        XCTAssertTrue(element.isHittable, "\(id) not hittable in \(name)")
+      }
+      XCTAssertTrue(app.buttons["Stop streaming"].isHittable, "Stop button not hittable in \(name)")
+      attachScreenshot("streaming-\(name)")
+    }
+  }
+
+  private func attachScreenshot(_ name: String) {
+    let attachment = XCTAttachment(screenshot: app.screenshot())
+    attachment.name = name
+    attachment.lifetime = .keepAlways
+    add(attachment)
+  }
+
   func testOSCSettingsValidateAndPersistDestination() async throws {
     try registerViaUI()
     let settings = app.buttons["osc_settings_button"]
@@ -142,7 +190,7 @@ final class MediaPipeIOSUITests: XCTestCase {
   // MARK: - Async helpers
 
   private func registerViaUI() throws {
-    let connect = app.buttons["Conectar mis gafas"]
+    let connect = app.buttons["Conectar mis lentes"]
     XCTAssertTrue(connect.waitForExistence(timeout: 10))
     connect.tap()
     let next = app.buttons["Continue"]

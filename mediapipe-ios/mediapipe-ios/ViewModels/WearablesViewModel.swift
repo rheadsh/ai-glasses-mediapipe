@@ -30,7 +30,6 @@ class WearablesViewModel {
 
   @ObservationIgnored private var registrationTask: Task<Void, Never>?
   @ObservationIgnored private var deviceStreamTask: Task<Void, Never>?
-  @ObservationIgnored private var setupDeviceStreamTask: Task<Void, Never>?
   private let wearables: WearablesInterface
   private var deviceCompatibility: [DeviceIdentifier: Compatibility] = [:]
   private var compatibilityListenerTokens: [DeviceIdentifier: AnyListenerToken] = [:]
@@ -41,12 +40,11 @@ class WearablesViewModel {
     self.registrationState = wearables.registrationState
 
     // Set up device stream immediately to handle MockDevice events
-    setupDeviceStreamTask = Task {
-      await setupDeviceStream()
-    }
+    setupDeviceStream()
 
-    registrationTask = Task {
+    registrationTask = Task { [weak self] in
       for await registrationState in wearables.registrationStateStream() {
+        guard let self else { return }
         let previousState = self.registrationState
         self.registrationState = registrationState
         if self.showGettingStartedSheet == false && registrationState == .registered && previousState == .registering {
@@ -59,16 +57,15 @@ class WearablesViewModel {
   isolated deinit {
     registrationTask?.cancel()
     deviceStreamTask?.cancel()
-    setupDeviceStreamTask?.cancel()
   }
 
-  private func setupDeviceStream() async {
-    if let task = deviceStreamTask, !task.isCancelled {
-      task.cancel()
-    }
+  private func setupDeviceStream() {
+    deviceStreamTask?.cancel()
 
-    deviceStreamTask = Task {
+    let wearables = wearables
+    deviceStreamTask = Task { [weak self] in
       for await devices in wearables.devicesStream() {
+        guard let self else { return }
         self.devices = devices
         // Monitor compatibility for each device
         monitorDeviceCompatibility(devices: devices)
@@ -134,7 +131,7 @@ class WearablesViewModel {
     do {
       try await wearables.openFirmwareUpdate()
     } catch {
-      showError(error.description)
+      showError(error.localizedDescription)
     }
   }
 
@@ -142,7 +139,7 @@ class WearablesViewModel {
     do {
       try await wearables.openDATGlassesAppUpdate()
     } catch {
-      showError(error.description)
+      showError(error.localizedDescription)
     }
   }
 

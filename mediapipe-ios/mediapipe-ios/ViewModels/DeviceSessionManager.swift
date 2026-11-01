@@ -18,6 +18,8 @@ final class DeviceSessionManager {
   private(set) var isReady: Bool = false
   private(set) var hasActiveDevice: Bool = false
 
+  private nonisolated static let sessionStartTimeout: Duration = .seconds(30)
+
   private let wearables: WearablesInterface
   private let deviceSelector: AutoDeviceSelector
   private var deviceSession: DeviceSession?
@@ -111,6 +113,8 @@ final class DeviceSessionManager {
       return session
     } catch {
       isReady = false
+      // A session that never reached .started must not stay alive in the background.
+      deviceSession?.stop()
       deviceSession = nil
       throw error
     }
@@ -149,6 +153,12 @@ final class DeviceSessionManager {
           throw DeviceSessionError.unexpectedError(description: "The session failed to start")
         }
 
+        group.addTask {
+          try await Task.sleep(for: Self.sessionStartTimeout)
+          throw DeviceSessionError.unexpectedError(
+            description: "Timed out waiting for the glasses session to start")
+        }
+
         guard try await group.next() != nil else {
           throw DeviceSessionError.unexpectedError(description: "The session failed to start")
         }
@@ -164,9 +174,10 @@ final class DeviceSessionManager {
   /// Monitors device availability only — does NOT create sessions.
   /// Session creation is deferred to `getSession()` to avoid races.
   private func startDeviceMonitoring() {
-    deviceMonitorTask = Task { [weak self] in
-      guard let self else { return }
+    // Capture the selector, not self, so this loop does not keep the manager alive.
+    deviceMonitorTask = Task { [weak self, deviceSelector] in
       for await device in deviceSelector.activeDeviceStream() {
+        guard let self else { return }
         hasActiveDevice = device != nil
       }
     }

@@ -126,7 +126,7 @@ enum MediaPipeVisionTask: String, CaseIterable, Identifiable, Sendable {
 
   var configurationMessage: String {
     if isConfigured {
-      return "\(modelDisplayName) está listo para el stream de las gafas."
+      return "\(modelDisplayName) está listo para el stream de los lentes."
     }
     return
       "No se encontró \(resourceName).\(resourceExtension) en el bundle de la app."

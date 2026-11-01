@@ -46,6 +46,16 @@ final class OSCEncodingTests: XCTestCase {
     XCTAssertEqual(decodedMessages, messages.count)
   }
 
+  func testDropsMessagesThatCannotFitInOneDatagramInsteadOfCrashing() {
+    let oversized = OSCMessage(address: "/mediapipe/x/detection/0", arguments: [.string(String(repeating: "a", count: 1500))])
+    let small = OSCMessage(address: "/mediapipe/x/active", arguments: [.int(1)])
+    let packets = OSCPacketEncoder.packets(messages: [oversized, small], frameID: 7)
+    XCTAssertEqual(packets.count, 1)
+    XCTAssertLessThanOrEqual(packets[0].count, 1200)
+    XCTAssertNotNil(packets[0].range(of: small.encoded()))
+    XCTAssertNil(packets[0].range(of: Data(repeating: 97, count: 64)))
+  }
+
   func testEveryTaskHasZeroCountsForEmptyResults() {
     let empty = VisionAnalysisResult(detections: [], landmarkGroups: [], maskImage: nil, summary: "", resultCount: 0, inferenceTimeMilliseconds: 5)
     for task in MediaPipeVisionTask.allCases {

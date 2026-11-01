@@ -2,177 +2,9 @@ import Foundation
 import MediaPipeTasksVision
 import UIKit
 
-enum MediaPipeObjectDetectorError: LocalizedError {
-  case modelNotFound
-  case imageConversionFailed
-  case detectorUnavailable
-
-  var errorDescription: String? {
-    switch self {
-    case .modelNotFound:
-      return "No se encontró el modelo .tflite solicitado en el bundle de la app."
-    case .imageConversionFailed:
-      return "MediaPipe no pudo convertir el frame recibido desde las gafas."
-    case .detectorUnavailable:
-      return "El detector de objetos de MediaPipe no está preparado."
-    }
-  }
-}
-
-/// Serial, back-pressure-aware adapter between DAT camera frames and MediaPipe Tasks.
-///
-/// ObjectDetector in image mode blocks the calling thread. All work therefore runs on a
-/// dedicated queue, and incoming frames are dropped while an inference is already in flight.
-final class MediaPipeObjectDetector: ObjectDetecting, @unchecked Sendable {
-  private let modelPath: String
-  private let scoreThreshold: Float
-  private let maxResults: Int
-  private let inferenceQueue = DispatchQueue(
-    label: "com.rheadsh.mediapipe-ios.object-detector",
-    qos: .userInitiated
-  )
-  private let stateLock = NSLock()
-
-  private var detector: ObjectDetector?
-  private var isPreparing = false
-  private var isProcessingFrame = false
-
-  init(
-    modelPath: String,
-    scoreThreshold: Float = 0.45,
-    maxResults: Int = 5
-  ) {
-    self.modelPath = modelPath
-    self.scoreThreshold = scoreThreshold
-    self.maxResults = maxResults
-  }
-
-  static func bundledModelPath(for model: ObjectDetectionModel) -> String? {
-    Bundle.main.path(forResource: model.resourceName, ofType: "tflite")
-  }
-
-  func prepare(completion: @escaping @Sendable (Result<Void, Error>) -> Void) {
-    stateLock.lock()
-    if detector != nil {
-      stateLock.unlock()
-      completion(.success(()))
-      return
-    }
-    guard !isPreparing else {
-      stateLock.unlock()
-      return
-    }
-    isPreparing = true
-    stateLock.unlock()
-
-    inferenceQueue.async { [weak self] in
-      guard let self else { return }
-      let result: Result<Void, Error>
-
-      do {
-        guard FileManager.default.fileExists(atPath: self.modelPath) else {
-          throw MediaPipeObjectDetectorError.modelNotFound
-        }
-
-        let options = ObjectDetectorOptions()
-        options.baseOptions.modelAssetPath = self.modelPath
-        options.runningMode = .image
-        options.scoreThreshold = self.scoreThreshold
-        options.maxResults = self.maxResults
-        let detector = try ObjectDetector(options: options)
-
-        self.stateLock.lock()
-        self.detector = detector
-        self.isPreparing = false
-        self.stateLock.unlock()
-        result = .success(())
-      } catch {
-        self.stateLock.lock()
-        self.isPreparing = false
-        self.stateLock.unlock()
-        result = .failure(error)
-      }
-
-      completion(result)
-    }
-  }
-
-  func submit(
-    image: UIImage,
-    completion: @escaping @Sendable (Result<ObjectDetectionResult, Error>) -> Void
-  ) {
-    stateLock.lock()
-    guard detector != nil else {
-      stateLock.unlock()
-      completion(.failure(MediaPipeObjectDetectorError.detectorUnavailable))
-      return
-    }
-    guard !isProcessingFrame else {
-      stateLock.unlock()
-      return
-    }
-    isProcessingFrame = true
-    stateLock.unlock()
-
-    inferenceQueue.async { [weak self] in
-      guard let self else { return }
-      defer {
-        self.stateLock.lock()
-        self.isProcessingFrame = false
-        self.stateLock.unlock()
-      }
-
-      autoreleasepool {
-        do {
-          guard let detector = self.detector else {
-            throw MediaPipeObjectDetectorError.detectorUnavailable
-          }
-
-          let mediaPipeImage = try MPImage(uiImage: image)
-          let start = ContinuousClock.now
-          let result = try detector.detect(image: mediaPipeImage)
-          let elapsed = start.duration(to: .now)
-          let inferenceMilliseconds =
-            Double(elapsed.components.seconds) * 1_000
-            + Double(elapsed.components.attoseconds) / 1_000_000_000_000_000
-
-          let detections = result.detections.compactMap { detection -> ObjectDetection? in
-            guard let category = detection.categories.first else { return nil }
-            let normalizedBox = DetectionGeometry.normalized(
-              detection.boundingBox,
-              imageSize: image.size
-            )
-            guard !normalizedBox.isEmpty else { return nil }
-
-            return ObjectDetection(
-              label: category.displayName ?? category.categoryName ?? "Objeto",
-              score: category.score,
-              normalizedBoundingBox: normalizedBox
-            )
-          }
-
-          completion(
-            .success(
-              ObjectDetectionResult(
-                detections: detections,
-                inferenceTimeMilliseconds: inferenceMilliseconds
-              )
-            )
-          )
-        } catch {
-          completion(.failure(error))
-        }
-      }
-    }
-  }
-
-  func reset() {}
-}
-
 enum MediaPipeVisionAnalyzerError: LocalizedError {
   case modelNotFound(String)
   case analyzerUnavailable
-  case unsupportedTask
 
   var errorDescription: String? {
     switch self {
@@ -180,8 +12,6 @@ enum MediaPipeVisionAnalyzerError: LocalizedError {
       return "No se encontró \(filename) en el bundle."
     case .analyzerUnavailable:
       return "La tarea de MediaPipe todavía no está preparada."
-    case .unsupportedTask:
-      return "La tarea seleccionada no está disponible en esta versión de MediaPipe."
     }
   }
 }
@@ -211,7 +41,6 @@ final class MediaPipeVisionAnalyzer: @unchecked Sendable {
   )
   private let stateLock = NSLock()
   private var runtime: Runtime?
-  private var configuredTask: MediaPipeVisionTask?
   private var isProcessingFrame = false
   private var generation = 0
 
@@ -237,7 +66,6 @@ final class MediaPipeVisionAnalyzer: @unchecked Sendable {
 
           // This assignment releases the previous model before creating the next one.
           self.runtime = nil
-          self.configuredTask = nil
           let runtime = try Self.makeRuntime(task: task, modelPath: modelPath)
 
           self.stateLock.lock()
@@ -246,11 +74,9 @@ final class MediaPipeVisionAnalyzer: @unchecked Sendable {
           guard isCurrent else { return }
 
           self.runtime = runtime
-          self.configuredTask = task
           completion(.success(()))
         } catch {
           self.runtime = nil
-          self.configuredTask = nil
           completion(.failure(error))
         }
       }
@@ -328,7 +154,6 @@ final class MediaPipeVisionAnalyzer: @unchecked Sendable {
     stateLock.unlock()
     inferenceQueue.async { [weak self] in
       self?.runtime = nil
-      self?.configuredTask = nil
     }
   }
 
@@ -503,8 +328,9 @@ final class MediaPipeVisionAnalyzer: @unchecked Sendable {
     case .imageEmbedder(let embedder):
       let result = try embedder.embed(image: image)
       let embedding = result.embeddingResult.embeddings.first
-      let dimensions = embedding?.floatEmbedding?.count ?? embedding?.quantizedEmbedding?.count ?? 0
+      // Only float embeddings are sent over OSC, so the reported size follows them.
       let values = embedding?.floatEmbedding?.map { $0.floatValue } ?? []
+      let dimensions = values.count
       var messages = [OSCMessage(address: "/embedding/dimensions", arguments: [.int(Int32(values.count))])]
       for offset in stride(from: 0, to: values.count, by: 64) {
         messages.append(OSCMessage(address: "/embedding/values", arguments:

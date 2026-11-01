@@ -62,7 +62,9 @@ enum OSCPacketEncoder {
     var packets: [Data] = []
     for message in messages {
       let encoded = message.encoded()
-      precondition(base.count + 4 + encoded.count <= maximumSize, "OSC message must be chunked")
+      // A single message that cannot fit in a datagram (e.g. an unexpectedly long label)
+      // is dropped rather than crashing the app; callers chunk the large payloads.
+      guard base.count + 4 + encoded.count <= maximumSize else { continue }
       if packet.count + 4 + encoded.count > maximumSize {
         packets.append(packet)
         packet = base

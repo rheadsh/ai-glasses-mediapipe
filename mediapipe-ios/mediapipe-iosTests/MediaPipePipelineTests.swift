@@ -30,7 +30,7 @@ final class MediaPipePipelineTests: XCTestCase {
     for task in MediaPipeVisionTask.allCases {
       let modelPath: String?
       if task == .objectDetection {
-        modelPath = MediaPipeObjectDetector.bundledModelPath(for: .efficientDetLite0)
+        modelPath = ObjectDetectionModel.efficientDetLite0.bundledModelPath
       } else {
         modelPath = task.bundledModelPath
       }
@@ -45,6 +45,14 @@ final class MediaPipePipelineTests: XCTestCase {
       XCTAssertGreaterThan(result.inferenceTimeMilliseconds, 0, task.displayName)
       let oscMessages = OSCTrackingMessages.make(result, task: task)
       XCTAssertFalse(OSCPacketEncoder.packets(messages: oscMessages, frameID: 1).isEmpty)
+      // The advertised group count must match the landmark groups actually sent.
+      let root = "/mediapipe/\(task.rawValue)"
+      let counts = oscMessages.first { $0.address == root + "/counts" }?.arguments
+      XCTAssertEqual(counts?.count, 3, task.displayName)
+      XCTAssertEqual(counts?[2], .int(Int32(result.landmarkGroups.count)), task.displayName)
+      XCTAssertEqual(
+        oscMessages.filter { $0.address.hasSuffix("/count") && $0.address.contains("/landmarks/") }.count,
+        result.landmarkGroups.count, task.displayName)
       switch task {
       case .imageClassification:
         XCTAssertTrue(result.oscMessages.contains { $0.address.hasPrefix("/category/") })
@@ -68,13 +76,17 @@ final class MediaPipePipelineTests: XCTestCase {
 
   func testBothObjectDetectionModelsProcessBundledFixture() async throws {
     let image = try XCTUnwrap(UIImage(contentsOfFile: try fixtureURL("plant", extension: "png").path))
+    // Same analyzer the app uses, so both bundled models are checked through the real path.
+    let analyzer = MediaPipeVisionAnalyzer()
+    defer { analyzer.reset() }
     for model in ObjectDetectionModel.allCases {
-      let modelPath = try XCTUnwrap(MediaPipeObjectDetector.bundledModelPath(for: model),
+      let modelPath = try XCTUnwrap(model.bundledModelPath,
         "Missing bundled model: \(model.resourceName).tflite")
-      let detector = MediaPipeObjectDetector(modelPath: modelPath, scoreThreshold: 0.2, maxResults: 5)
-      let _: Void = try await callbackValue("Prepare \(model.displayName)") { detector.prepare(completion: $0) }
-      let result: ObjectDetectionResult = try await callbackValue("Detect \(model.displayName)") {
-        detector.submit(image: image, completion: $0)
+      let _: Void = try await callbackValue("Configure \(model.displayName)") { completion in
+        analyzer.configure(task: .objectDetection, modelPath: modelPath, completion: completion)
+      }
+      let result: VisionAnalysisResult = try await callbackValue("Detect \(model.displayName)") { completion in
+        analyzer.submit(image: image, interactionPoint: nil, completion: completion)
       }
       XCTAssertGreaterThan(result.inferenceTimeMilliseconds, 0, model.displayName)
       for detection in result.detections {

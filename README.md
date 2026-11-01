@@ -4,8 +4,6 @@ An iOS app that processes the first-person camera stream from Meta Ray-Ban glass
 
 The repository also includes a ready-to-open TouchDesigner project for inspecting the messages, visualizing tracking data, and mapping numeric channels to visuals, lighting, or sound.
 
-> **Language note:** the READMEs are in English. The app UI is in Spanish, so UI labels appear as English text followed by the Spanish label in parentheses. The [OSC contract](mediapipe-ios/OSC.md) is still in Spanish and, together with the [TouchDesigner guide](TouchDesigner/README.md), is the source of truth for message formats and output channels.
-
 ## Privacy and network scope
 
 Camera frames are analyzed **on the iPhone**. Only numeric results (boxes, landmarks, scores, reduced masks, embeddings) leave the device, and only when you explicitly enable OSC. No video is sent. OSC over UDP has no authentication or encryption: use it on a network you trust.
@@ -124,11 +122,28 @@ The app already includes its callback URL scheme, external accessory protocol, U
 ### Run with glasses
 
 1. Enable Developer Mode for the paired glasses in Meta AI.
-2. Launch the app and tap **Connect my glasses** (`Conectar mis gafas`).
+2. Launch the app and tap **Connect my glasses** (`Conectar mis lentes`).
 3. Complete registration and grant camera access when requested.
 4. With the glasses available, tap **Start stream and analysis** (`Iniciar stream y análisis`).
 5. Select a Vision Task or object detection model. For interactive segmentation, tap a point in the preview.
 6. Use the analysis control to pause/resume inference, the camera control to capture a photo, and **Stop streaming** to end the stream.
+
+### Keep running with the iPhone locked
+
+By default the app streams with DAT's `raw` codec, which DAT **pauses when the app goes to the background**. To keep analysis and OSC running while the phone is locked or another app is in front:
+
+1. Before starting the stream, turn on **With locked screen** (`Con pantalla bloqueada`), next to the OSC button. The setting is remembered and cannot change while streaming.
+2. Start the stream and, if you use OSC, enable it as usual. Then lock the phone.
+
+In this mode the app streams compressed HEVC (`VideoCodec.hvc1`), decodes it on the CPU with VideoToolbox, stops refreshing the preview while it is not on screen, and keeps running MediaPipe and sending OSC. The Bluetooth and external-accessory background modes already declared in `Info.plist` are what let iOS keep the app alive while the glasses stream.
+
+Limits to know about:
+
+- DAT may report `Critical error, the stream should end` (`StreamError.videoStreamingError`) when the phone locks. The app does not show that alert as long as frames keep arriving after it (locked or not); if they stop for 5 seconds it ends the stream and shows the error. Each DAT error is logged with `NSLog` (`[mediapipe-ios] DAT stream error: ...`).
+- iOS may still suspend or terminate a background app (memory pressure, battery saver, thermal state). Stream interruptions are reported by DAT and clear the OSC state as usual.
+- Use the same Wi-Fi network; locking the phone does not change local-network access, but some networks put sleeping devices to sleep.
+- Inference runs on the CPU only (no GPU in the background), so rates can be lower than in the foreground.
+- This was verified with MockDeviceKit and with real HEVC samples decoded by `VideoFrameImageConverter`. It has **not** been verified on real glasses with a locked iPhone; validate it with your hardware before relying on it in an installation.
 
 For development without glasses, use the Debug menu to enable MockDeviceKit, pair mock glasses, power them on, unfold them, and simulate wearing them. Configure a video/image feed for streaming and photo capture.
 

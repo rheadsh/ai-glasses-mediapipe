@@ -30,7 +30,6 @@
 		8FFD60612E84A2F70035E446 /* DebugMenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FFD605E2E84A2F70035E446 /* DebugMenuView.swift */; };
 		9CFEF9D75A313189ABFE3BF9 /* Pods_mediapipe_ios.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1B0FFC9FB7E37F2871135009 /* Pods_mediapipe_ios.framework */; };
 		A10000012FA0000100000001 /* ObjectDetection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000002FA0000100000001 /* ObjectDetection.swift */; };
-		A10000032FA0000100000001 /* ObjectDetecting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000022FA0000100000001 /* ObjectDetecting.swift */; };
 		A10000052FA0000100000001 /* MediaPipeObjectDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000042FA0000100000001 /* MediaPipeObjectDetector.swift */; };
 		A10000072FA0000100000001 /* efficientdet_lite0.tflite in Resources */ = {isa = PBXBuildFile; fileRef = A10000062FA0000100000001 /* efficientdet_lite0.tflite */; };
 		A10000112FA0000100000001 /* efficientdet_lite2.tflite in Resources */ = {isa = PBXBuildFile; fileRef = A10000102FA0000100000001 /* efficientdet_lite2.tflite */; };
@@ -48,6 +47,7 @@
 		B4AD2842346A5F8BAFE7275D /* Pods_mediapipe_iosTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 76B19C834B266CB4F7BC106E /* Pods_mediapipe_iosTests.framework */; };
 		C20000012FA0000100000001 /* OSCMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000002FA0000100000001 /* OSCMessage.swift */; };
 		C20000032FA0000100000001 /* OSCOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000022FA0000100000001 /* OSCOutput.swift */; };
+		D30000012FA0000100000001 /* VideoFrameImageConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D30000002FA0000100000001 /* VideoFrameImageConverter.swift */; };
 		E66CC01B2F3E1A9300B07379 /* plant.png in Resources */ = {isa = PBXBuildFile; fileRef = E66CC0192F3E1A9300B07379 /* plant.png */; };
 		E66CC01C2F3E1A9300B07379 /* plant.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = E66CC0182F3E1A9300B07379 /* plant.mp4 */; };
 		E66CC01D2F3E1A9300B07380 /* MWDATMockDeviceTestClient in Frameworks */ = {isa = PBXBuildFile; productRef = E66CC01E2F3E1A9300B07380 /* MWDATMockDeviceTestClient */; };
@@ -120,7 +120,6 @@
 		8FFD605E2E84A2F70035E446 /* DebugMenuView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugMenuView.swift; sourceTree = "<group>"; };
 		8FFD605F2E84A2F70035E446 /* MainAppView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainAppView.swift; sourceTree = "<group>"; };
 		A10000002FA0000100000001 /* ObjectDetection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObjectDetection.swift; sourceTree = "<group>"; };
-		A10000022FA0000100000001 /* ObjectDetecting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObjectDetecting.swift; sourceTree = "<group>"; };
 		A10000042FA0000100000001 /* MediaPipeObjectDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPipeObjectDetector.swift; sourceTree = "<group>"; };
 		A10000062FA0000100000001 /* efficientdet_lite0.tflite */ = {isa = PBXFileReference; lastKnownFileType = file; path = efficientdet_lite0.tflite; sourceTree = "<group>"; };
 		A10000102FA0000100000001 /* efficientdet_lite2.tflite */ = {isa = PBXFileReference; lastKnownFileType = file; path = efficientdet_lite2.tflite; sourceTree = "<group>"; };
@@ -138,6 +137,7 @@
 		C20000002FA0000100000001 /* OSCMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSCMessage.swift; sourceTree = "<group>"; };
 		C20000022FA0000100000001 /* OSCOutput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSCOutput.swift; sourceTree = "<group>"; };
 		D2FF178A08E5EA770B2DBE78 /* Pods-mediapipe-iosUITests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-mediapipe-iosUITests.debug.xcconfig"; path = "Target Support Files/Pods-mediapipe-iosUITests/Pods-mediapipe-iosUITests.debug.xcconfig"; sourceTree = "<group>"; };
+		D30000002FA0000100000001 /* VideoFrameImageConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFrameImageConverter.swift; sourceTree = "<group>"; };
 		E66CC00D2F3E05D900B07379 /* mediapipe-iosUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "mediapipe-iosUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		E66CC0182F3E1A9300B07379 /* plant.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = plant.mp4; sourceTree = "<group>"; };
 		E66CC0192F3E1A9300B07379 /* plant.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = plant.png; sourceTree = "<group>"; };
@@ -313,9 +313,9 @@
 		A10000092FA0000100000001 /* Services */ = {
 			isa = PBXGroup;
 			children = (
-				A10000022FA0000100000001 /* ObjectDetecting.swift */,
 				C20000022FA0000100000001 /* OSCOutput.swift */,
 				C20000002FA0000100000001 /* OSCMessage.swift */,
+				D30000002FA0000100000001 /* VideoFrameImageConverter.swift */,
 				A10000042FA0000100000001 /* MediaPipeObjectDetector.swift */,
 			);
 			path = Services;
@@ -579,7 +579,6 @@
 			files = (
 				A10000132FA0000100000001 /* MediaPipeVisionTask.swift in Sources */,
 				A10000012FA0000100000001 /* ObjectDetection.swift in Sources */,
-				A10000032FA0000100000001 /* ObjectDetecting.swift in Sources */,
 				A10000052FA0000100000001 /* MediaPipeObjectDetector.swift in Sources */,
 				8FD96B7F2E6F0A9800F56AB1 /* MediaPipeIOSApp.swift in Sources */,
 				8FD96B812E6F0A9800F56AB1 /* HomeScreenView.swift in Sources */,
@@ -596,6 +595,7 @@
 				8FD96B872E6F0A9800F56AB1 /* StreamSessionViewModel.swift in Sources */,
 				C20000032FA0000100000001 /* OSCOutput.swift in Sources */,
 				C20000012FA0000100000001 /* OSCMessage.swift in Sources */,
+				D30000012FA0000100000001 /* VideoFrameImageConverter.swift in Sources */,
 				8FD96B882E6F0A9800F56AB1 /* StreamSessionView.swift in Sources */,
 				8FFD60602E84A2F70035E446 /* MainAppView.swift in Sources */,
 				8FFD60612E84A2F70035E446 /* DebugMenuView.swift in Sources */,

@@ -77,6 +77,11 @@ stream.start()
 the capability and stops its children; `stream.stop()` stops the preview. Keep their
 lifetimes explicit, and finish session cleanup when the flow ends.
 
+- `VideoCodec.raw` pauses when the app is backgrounded. The opt-in "Con pantalla bloqueada"
+  mode uses `.hvc1`, which keeps streaming, but frames arrive compressed: decode them with
+  `VideoFrameImageConverter` (CPU/VideoToolbox). Never use `makeUIImage()`, CIContext or
+  Metal for frames in that mode, and do no SwiftUI preview work while the app is not active.
+  Real-glasses behavior with a locked iPhone needs hardware validation.
 - Registration, permission checks/requests, URL handling and update navigation are
   async/throwing. Use the exact signatures from the pinned SDK.
 - `DeviceSession.start()` and `addCamera(config:)` are synchronous/throwing;
@@ -171,6 +176,7 @@ Test suites under `mediapipe-ios/mediapipe-iosTests/`:
   tracking payload mapping/validation.
 - `OSCOutputIntegrationTests`: isolated defaults, loopback UDP receipt and terminal clear.
 - `DATStreamingIntegrationTests`: signed host app, MockDeviceKit streaming and capture.
+- `VideoFrameImageConverterTests`: pixel-buffer and real HEVC decoding without the GPU.
 - `TestSupport.swift`: required fixtures and cancellable, deadline-bounded state waits.
 
 `mediapipe-iosUITests/MediaPipeIOSUITests.swift` covers app flows using the async

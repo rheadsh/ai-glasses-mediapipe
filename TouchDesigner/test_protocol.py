@@ -26,8 +26,11 @@ class ReceiverTests(unittest.TestCase):
             self.r.receive(root+path,args)
         self.assertEqual(self.r.current['frame'],1)
         self.r.receive(root+'/landmarks/0/points',[1,.3,.4])
+        self.assertEqual(self.r.current['frame'],1)  # handedness still missing
+        self.r.receive(root+'/hand/0/handedness',['Right',.9])
         self.assertEqual(self.r.current['frame'],2)
         self.assertEqual(self.r.current['groups'][0]['points'][1],(.3,.4))
+        self.assertEqual(self.r.current['hands'][0],('Right',.9))
 
     def test_old_packets_cannot_mix_into_new_frames(self):
         self.send(10,'objectDetection')

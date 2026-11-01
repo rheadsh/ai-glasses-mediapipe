@@ -145,6 +145,8 @@ class ReceiverState:
             if any(j not in group['points'] for j in range(group['count'])): return False
             if frame['task'] == 'holisticLandmarkDetection' and not group['label']: return False
         task = frame['task']
+        # Handedness is sent after the landmarks: do not publish a hand frame without it.
+        if task in ('handLandmarkDetection', 'gestureRecognition') and any(i not in frame['hands'] for i in range(groups)): return False
         if task == 'imageClassification' and any(i not in frame['categories'] for i in range(results)): return False
         if task == 'gestureRecognition' and any(i not in frame['gestures'] for i in range(results)): return False
         if task == 'imageEmbedding':

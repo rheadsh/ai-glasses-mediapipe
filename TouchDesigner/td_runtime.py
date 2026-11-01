@@ -62,7 +62,7 @@ def refresh(force=False):
         + 'iPhone > Configurar OSC\nIP de este Mac + puerto indicado\n\n'
         + 'Salidas: controls (CHOP)\nTablas: detections / landmarks\ncategories / gestures / hands\nembedding / mask\n\n'
         + 'X,Y: imagen original, origen arriba-izquierda.\nSin profundidad ni IDs persistentes.\n\n'
-        + 'Timeout: 1 s. Datos incompletos no se publican.\nPrueba sin gafas: python3 demo_sender.py')
+        + 'Timeout: 1 s. Datos incompletos no se publican.\nPrueba sin lentes: python3 demo_sender.py')
     me.parent().parent().op('monitor/info').par.text.expr = repr(monitor_text)
 
 def channels(scriptOp):

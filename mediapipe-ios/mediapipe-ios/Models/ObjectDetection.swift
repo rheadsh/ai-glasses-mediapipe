@@ -34,6 +34,10 @@ enum ObjectDetectionModel: String, CaseIterable, Identifiable, Sendable {
       return "Mayor precisión"
     }
   }
+
+  var bundledModelPath: String? {
+    Bundle.main.path(forResource: resourceName, ofType: "tflite")
+  }
 }
 
 /// A MediaPipe detection expressed in normalized image coordinates.
@@ -53,28 +57,6 @@ struct ObjectDetection: Identifiable, Equatable, Sendable {
     self.label = label
     self.score = score
     self.normalizedBoundingBox = normalizedBoundingBox
-  }
-}
-
-struct ObjectDetectionResult: Equatable, Sendable {
-  let detections: [ObjectDetection]
-  let inferenceTimeMilliseconds: Double
-}
-
-enum ObjectDetectionStatus: Equatable {
-  case preparing
-  case ready
-  case unavailable(String)
-
-  var title: String {
-    switch self {
-    case .preparing:
-      return "Preparando MediaPipe"
-    case .ready:
-      return "MediaPipe activo"
-    case .unavailable:
-      return "MediaPipe no disponible"
-    }
   }
 }
 

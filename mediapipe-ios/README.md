@@ -86,7 +86,7 @@ Debug and Release both use `META_APP_ID = 0`, the bundle ID `com.rheadsh.mediapi
 ## Usage
 
 1. Enable Developer Mode for the glasses in Meta AI.
-2. Open the app and tap **Connect my glasses** (`Conectar mis gafas`).
+2. Open the app and tap **Connect my glasses** (`Conectar mis lentes`).
 3. With the glasses active, tap **Start stream and analysis** (`Iniciar stream y análisis`).
 4. Use the model picker before streaming, or the `cpu` button while streaming, to choose EfficientDet Lite0 or Lite2.
 5. Use the **Vision task** picker, or the grid button while streaming, to change tasks.

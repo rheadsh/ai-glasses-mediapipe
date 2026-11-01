@@ -65,8 +65,13 @@ final class OSCOutput {
     defaults.set(port, forKey: "osc.port")
     defaults.set(rate, forKey: "osc.rate")
     guard enabled else { status = "Desactivado"; return }
+    guard let rawPort = UInt16(exactly: port), let endpointPort = NWEndpoint.Port(rawValue: rawPort) else {
+      self.enabled = false
+      status = "Puerto UDP no válido."
+      return
+    }
     status = "Preparando UDP…"
-    let connection = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: UInt16(port))!, using: .udp)
+    let connection = NWConnection(host: NWEndpoint.Host(host), port: endpointPort, using: .udp)
     self.connection = connection
     let generation = generation
     connection.stateUpdateHandler = { [weak self] state in
@@ -76,15 +81,28 @@ final class OSCOutput {
         case .ready:
           self.ready = true
           self.status = "UDP listo · recepción sin confirmar"
-        case .waiting(let error), .failed(let error):
+        case .waiting(let error):
           self.ready = false
           self.status = error.localizedDescription
+        case .failed(let error):
+          // NWConnection does not leave .failed on its own: rebuild it shortly.
+          self.ready = false
+          self.status = error.localizedDescription
+          self.scheduleReconnect(generation: generation)
         case .cancelled: self.ready = false
         default: break
         }
       }
     }
     connection.start(queue: queue)
+  }
+
+  private func scheduleReconnect(generation: Int) {
+    Task { @MainActor [weak self] in
+      try? await Task.sleep(for: .seconds(2))
+      guard let self, self.enabled, self.generation == generation else { return }
+      self.configure(host: self.host, port: self.port, rate: self.rate, enabled: true)
+    }
   }
 
   func test() {

@@ -21,7 +21,7 @@ struct HomeScreenView: View {
 
   var body: some View {
     ZStack {
-      Color.white.edgesIgnoringSafeArea(.all)
+      Color(.systemBackground).edgesIgnoringSafeArea(.all)
 
       VStack(spacing: 12) {
         Spacer()
@@ -35,7 +35,7 @@ struct HomeScreenView: View {
           HomeTipItemView(
             resource: .smartGlassesIcon,
             title: "Ray-Ban Meta",
-            text: "Usa la cámara de las gafas como fuente de vídeo en primera persona."
+            text: "Usa la cámara de los lentes como fuente de vídeo en primera persona."
           )
           HomeTipItemView(
             resource: .soundIcon,
@@ -52,15 +52,15 @@ struct HomeScreenView: View {
         Spacer()
 
         VStack(spacing: 20) {
-          Text("La app Meta AI se abrirá para confirmar la conexión con tus gafas.")
+          Text("La app Meta AI se abrirá para confirmar la conexión con tus lentes.")
             .font(.system(size: 14))
-            .foregroundStyle(.gray)
+            .foregroundStyle(.secondary)
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 12)
 
           CustomButton(
-            title: viewModel.registrationState == .registering ? "Conectando..." : "Conectar mis gafas",
+            title: viewModel.registrationState == .registering ? "Conectando..." : "Conectar mis lentes",
             style: .primary,
             isDisabled: viewModel.registrationState == .registering
           ) {
@@ -84,7 +84,7 @@ struct HomeTipItemView: View {
       Image(resource)
         .resizable()
         .renderingMode(.template)
-        .foregroundStyle(.black)
+        .foregroundStyle(.primary)
         .aspectRatio(contentMode: .fit)
         .frame(width: 24)
         .padding(.leading, 4)
@@ -93,11 +93,11 @@ struct HomeTipItemView: View {
       VStack(alignment: .leading, spacing: 6) {
         Text(title)
           .font(.system(size: 18, weight: .semibold))
-          .foregroundStyle(.black)
+          .foregroundStyle(.primary)
 
         Text(text)
           .font(.system(size: 15))
-          .foregroundStyle(.gray)
+          .foregroundStyle(.secondary)
       }
       Spacer()
     }

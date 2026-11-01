@@ -4,6 +4,7 @@
  * This source code is licensed under the license found in the root LICENSE file.
  */
 
+import MWDATCamera
 import MWDATCore
 import MWDATMockDevice
 import XCTest
@@ -97,10 +98,63 @@ final class DATStreamingIntegrationTests: XCTestCase {
     XCTAssertNil(viewModel.capturedPhoto)
   }
 
-  private func startStreaming() async throws -> StreamSessionViewModel {
+  func testCompressedStreamKeepsDeliveringFramesInBackground() async throws {
+    let viewModel = try await startStreaming(keepsRunningWhenLocked: true)
+    XCTAssertTrue(viewModel.keepsRunningWhenLocked)
+
+    // Phone locked: the stream stays up and the preview is no longer updated.
+    viewModel.appActivityChanged(isActive: false)
+    XCTAssertEqual(viewModel.streamingStatus, .streaming)
+    let previewWhileLocked = viewModel.currentVideoFrame
+    try await Task.sleep(for: .milliseconds(500))
+    XCTAssertTrue(viewModel.currentVideoFrame === previewWhileLocked,
+      "Preview must not be refreshed while the app is not active")
+    XCTAssertEqual(viewModel.streamingStatus, .streaming)
+
+    // Unlocked again: new frames reach the preview.
+    viewModel.appActivityChanged(isActive: true)
+    try await waitUntil("Preview must resume after unlocking", timeout: 10) {
+      viewModel.currentVideoFrame !== previewWhileLocked
+    }
+  }
+
+  func testVideoErrorWhileLockedDoesNotInterruptStreamWhileFramesFlow() async throws {
+    let viewModel = try await startStreaming(keepsRunningWhenLocked: true)
+    viewModel.backgroundErrorGrace = .milliseconds(500)
+    viewModel.appActivityChanged(isActive: false)
+
+    viewModel.handleStreamError(.videoStreamingError)
+    XCTAssertFalse(viewModel.showError, "No alert while the phone is locked")
+    try await Task.sleep(for: .seconds(1.5))
+    XCTAssertEqual(viewModel.streamingStatus, .streaming, "Frames keep flowing, so the stream stays up")
+    XCTAssertFalse(viewModel.showError)
+  }
+
+  func testVideoErrorWithFlowingFramesIsNotShownEvenInForeground() async throws {
+    let viewModel = try await startStreaming(keepsRunningWhenLocked: true)
+    viewModel.backgroundErrorGrace = .milliseconds(500)
+    viewModel.handleStreamError(.videoStreamingError)
+    try await Task.sleep(for: .seconds(1.5))
+    XCTAssertEqual(viewModel.streamingStatus, .streaming)
+    XCTAssertFalse(viewModel.showError)
+  }
+
+  func testOtherStreamErrorsAreStillReported() async throws {
+    let viewModel = try await startStreaming()
+    viewModel.handleStreamError(.thermalHot)
+    XCTAssertTrue(viewModel.showError)
+    XCTAssertEqual(viewModel.errorMessage, StreamError.thermalHot.localizedDescription)
+  }
+
+  private func startStreaming(keepsRunningWhenLocked: Bool = false) async throws -> StreamSessionViewModel {
     let camera = try XCTUnwrap(camera)
     camera.setCameraFeed(fileURL: try fixtureURL("plant", extension: "mp4"))
-    let viewModel = StreamSessionViewModel(wearables: Wearables.shared)
+    // Isolated defaults: never read or write the developer's saved settings.
+    let suite = "DATStreamingTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+    addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+    let viewModel = StreamSessionViewModel(wearables: Wearables.shared, defaults: defaults)
+    viewModel.keepsRunningWhenLocked = keepsRunningWhenLocked
     self.viewModel = viewModel
     // Streaming tests exercise DAT; actual inference is covered by MediaPipePipelineTests.
     viewModel.isVisionAnalysisEnabled = false

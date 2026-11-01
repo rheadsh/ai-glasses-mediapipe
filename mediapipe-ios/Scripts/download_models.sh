@@ -24,6 +24,8 @@ download_model() {
   fi
 
   temporary_model="$(mktemp "${model_path}.XXXXXX")"
+  # Never leave partial downloads next to the bundled models.
+  trap 'rm -f "${temporary_model}"' EXIT
   curl --fail --location --retry 3 --output "${temporary_model}" "${url}"
   actual_sha256="$(shasum -a 256 "${temporary_model}" | awk '{print $1}')"
   if [[ "${actual_sha256}" != "${expected_sha256}" ]]; then
@@ -33,6 +35,7 @@ download_model() {
   fi
 
   mv "${temporary_model}" "${model_path}"
+  trap - EXIT
   chmod 0644 "${model_path}"
   echo "Downloaded MediaPipe model: ${model_path}"
 }
