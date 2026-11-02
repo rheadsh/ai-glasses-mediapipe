@@ -2,7 +2,7 @@ import sys
 import unittest
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'demo'))
-from osc_protocol import ReceiverState, TASKS, OutputFilter, controls, points, find_point, convert, TRACK_POINTS
+from osc_protocol import ReceiverState, TASKS, OutputFilter, controls, points, find_point, convert, TRACK_POINTS, MAX_LABELS, MAX_LABEL_LENGTH
 from demo_sender import sample, packets, TASKS as DEMO_TASKS
 
 class ReceiverTests(unittest.TestCase):
@@ -92,6 +92,17 @@ class ReceiverTests(unittest.TestCase):
         self.assertEqual(controls(self.r.current,labels=labels)['class_demo_cup'],1)
         empty = controls(None,labels=labels)
         self.assertEqual((empty['active'],empty['present'],empty['class_demo_cup']),(0,0,0))
+
+    def test_network_labels_cannot_grow_channels_without_bound(self):
+        labels=set()
+        for frame in range(1,MAX_LABELS+20):
+            self.r.receive('/mediapipe/frame',[frame])
+            root='/mediapipe/objectDetection'
+            for path,args in [('/counts',[1,1,0]),('/inferenceMs',[1.0]),('/detection/0',[str(frame)+'x'*100,.9,0.,0.,.1,.1])]:
+                self.r.receive(root+path,args)
+            controls(self.r.current,labels=labels)
+        self.assertEqual(len(labels),MAX_LABELS)
+        self.assertTrue(all(len(label)<=MAX_LABEL_LENGTH for label in labels))
 
     def test_points_are_centered_rows_for_instancing(self):
         self.send(1,'handLandmarkDetection')

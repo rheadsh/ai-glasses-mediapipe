@@ -182,6 +182,9 @@ TRACK_POINTS = (tuple('hand_' + n for n in HAND_POINTS) + tuple('pose_' + n for 
                 + tuple('face_' + n for n in FACE_POINTS))
 GESTURES = ('Closed_Fist', 'Open_Palm', 'Pointing_Up', 'Thumb_Down', 'Thumb_Up', 'Victory', 'ILoveYou')
 COORDINATES = ('image', 'bottomleft', 'centered')
+# Labels come from the network: bound the class_* channels any sender can create.
+MAX_LABELS = 64
+MAX_LABEL_LENGTH = 32
 # Continuous channels: smoothed, and held on tracking loss when requested.
 SMOOTHED = ('presence', 'mask_confidence', 'first_score', 'point_x', 'point_y',
             'hand_x', 'hand_y', 'pinch_distance')
@@ -196,7 +199,7 @@ def convert(x, y, mode):
 
 
 def channel_name(label):
-    return re.sub(r'[^a-z0-9]+', '_', str(label).lower()).strip('_') or 'object'
+    return re.sub(r'[^a-z0-9]+', '_', str(label).lower()).strip('_')[:MAX_LABEL_LENGTH] or 'object'
 
 
 def find_point(frame, name):
@@ -242,7 +245,8 @@ def controls(frame, trackpoint='hand_index_tip', coordinates='image', labels=Non
             if 4 in hand and 8 in hand: values['pinch_distance'] = math.dist(hand[4], hand[8])
         if f['detections']: values['first_score'] = next(iter(f['detections'].values()))[1]
         elif f['categories']: values['first_score'] = next(iter(f['categories'].values()))[1]
-        labels.update(channel_name(d[0]) for d in f['detections'].values())
+        for name in (channel_name(d[0]) for d in f['detections'].values()):
+            if name in labels or len(labels) < MAX_LABELS: labels.add(name)
     current = {g[0] for g in f['gestures'].values()} if f else set()
     for gesture in GESTURES:
         values['gesture_' + gesture.lower()] = int(gesture in current)
