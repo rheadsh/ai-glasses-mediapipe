@@ -83,15 +83,12 @@ For physical glasses, install the Meta AI companion app, pair compatible glasses
 │   ├── README.md                    # App architecture, setup, and testing
 │   └── OSC.md                       # Full OSC address and argument contract
 └── TouchDesigner/
-    ├── RayBan_MediaPipe_OSC.toe      # Complete receiver project
-    ├── RayBan_OSC.tox               # Reusable receiver component
-    ├── demo_sender.py              # Synthetic OSC data for all 11 tasks
-    ├── osc_protocol.py             # Standalone frame reconstruction and validation
-    ├── td_runtime.py               # Tables, numeric controls, and visualization
-    ├── build_project.py            # Rebuild the embedded TouchDesigner component
-    ├── validate_project.py         # Validate reception inside TouchDesigner
-    ├── test_protocol.py            # Standalone receiver tests
-    └── README.md                   # Detailed TouchDesigner guide
+    ├── README.md                   # TouchDesigner guide for artists
+    ├── RayBan_OSC.tox               # Drag into your own project
+    ├── RayBan_MediaPipe_OSC.toe      # Example receiver project
+    ├── examples/                   # Beginner CHOP and instancing examples (.tox)
+    ├── demo/demo_sender.py         # Synthetic OSC data for all 11 tasks
+    └── dev/                        # Receiver source, rebuild, and tests
 ```
 
 ## Set up the iOS app
@@ -159,7 +156,7 @@ For development without glasses, use the Debug menu to enable MockDeviceKit, pai
 6. Open the OSC settings again and tap **Send test** (`Enviar prueba`). It uses the destination you already applied, so apply first. The receiver should register `/mediapipe/test` with the arguments `"rayban"` and `1`.
 7. Start streaming with analysis enabled. The selected task's results will update the monitor, data tables, and outputs.
 
-Each result is a set of OSC messages in one bundle, tagged with a frame ID. For example, a hand-landmark result looks like this (simplified):
+Each result is a set of OSC messages tagged with a frame ID. Small results fit in one bundle; large ones (face meshes, holistic, embeddings, masks) are split into several bundles that all repeat the same `/mediapipe/frame`. For example, a hand-landmark result looks like this (simplified):
 
 ```text
 /mediapipe/frame                                   42
@@ -177,46 +174,32 @@ Allow the app's local-network access when iOS requests it. `127.0.0.1` on the iP
 
 The default maximum transmission rate is 15 results/s, configurable from 1 to 30. Actual throughput also depends on inference speed. OSC carries analysis data, not camera video.
 
-### TouchDesigner workflow
+### Use it in your own TouchDesigner project
 
-The main network is organized into five stages:
+Drag [RayBan_OSC.tox](TouchDesigner/RayBan_OSC.tox) into your network, set **Receiver → UDP Port**, and wire its outputs:
 
-```text
-input_osc → decode_frames → tracking_data → outputs → monitor
-                                              ├─ OUT_CONTROLS (CHOP)
-                                              └─ OUT_PREVIEW  (TOP)
-```
-
-Each stage reads the previous stage's output (the stages are wired through DAT callbacks and operator references). Open `tracking_data` to inspect detections, landmarks, categories, gestures, handedness, embeddings, and mask rows. Use `OUT_CONTROLS` for numeric mappings and `OUT_PREVIEW` for the rendered 2D tracking view.
-
-`OUT_CONTROLS` provides one sample per channel:
-
-| Channel | Meaning |
+| Output | Contents |
 |---|---|
-| `active` | `1` while a complete, current frame exists; `0` after stop or timeout |
-| `frame`, `results`, `detections`, `groups` | Frame ID and counts for the current result |
-| `inference_ms` | Inference time on the iPhone |
-| `mask_confidence` | Mean confidence of the 16×16 mask samples (not a binary area) |
-| `hand_x`, `hand_y` | Landmark 8 (index fingertip) of group 0; hand tasks only |
-| `pinch_distance` | 2D distance between landmarks 4 and 8; hand tasks only |
-| `first_score` | Score of the first detection or category, if any |
+| `controls` (CHOP) | One value per channel: `active`, `presence` (smoothed 0…1), `point_x`/`point_y` for a named landmark you pick, `pinch_distance`, `gesture_*` and `class_*` triggers, counts, and more. |
+| `points` (CHOP) | Every landmark as one sample (`tx`, `ty`, `scale`) for Geometry COMP instancing. |
+| `preview` (TOP) | 2D drawing of the received tracking, not camera video. |
 
-Hand channels stay at zero for non-hand tasks. See the [TouchDesigner guide](TouchDesigner/README.md) for details.
+The component's parameters choose the tracked landmark, the coordinate space (image, bottom-left, or centered), smoothing, hold-on-loss, the clear timeout, and a built-in **Demo** that generates fake data without glasses or a terminal. The monitor shows the IP and port to type on the iPhone.
 
-For example, select `pinch_distance`, remap it with a Math CHOP, and use it to control particle size or another installation parameter. Use `active` to gate the response when tracking is unavailable.
+For a first mapping, open `easy_example` in the example project (also [examples/RayBan_Easy_CHOPs.tox](TouchDesigner/examples/RayBan_Easy_CHOPs.tox)): Select CHOPs and expressions move, resize, recolour, and fade a circle from the fingertip, pinch, gestures, and presence. `points_example` instances a shape on every landmark. See the [TouchDesigner guide](TouchDesigner/README.md) for every channel and parameter.
 
-The `.toe` and `.tox` embed the receiver code; external Python source files are not needed for normal operation. Use the `.tox` when importing the component into another project. Avoid opening two receivers on the same port.
+The `.toe` and `.tox` embed the receiver code; the `dev/` sources are not needed for normal operation. Avoid opening two receivers on the same port.
 
 ### Try the receiver without glasses
 
-With the TouchDesigner project open and listening on port 9000, run these commands from the repository root:
+The quickest test is the component's built-in **Receiver → Demo** toggle. To test the network path instead, turn Demo off and, with the project listening on port 9000, run from the repository root:
 
 ```bash
 # Cycle through all 11 tasks using synthetic data.
-python3 TouchDesigner/demo_sender.py --seconds 24
+python3 TouchDesigner/demo/demo_sender.py --seconds 24
 
 # Send a single task for experimenting with controls.
-python3 TouchDesigner/demo_sender.py --task handLandmarkDetection --seconds 30
+python3 TouchDesigner/demo/demo_sender.py --task handLandmarkDetection --seconds 30
 ```
 
 The demo sends to `127.0.0.1:9000` by default and does not run MediaPipe or read the glasses. Stop it and allow one second without traffic before switching to the iPhone: the receiver locks onto one source at a time and releases it after one second of silence.

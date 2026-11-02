@@ -2,6 +2,7 @@
 One active source, bounded frames, no mixing of partial/reordered UDP results.
 """
 import math
+import re
 import time
 
 TASKS = ('objectDetection', 'imageClassification', 'imageSegmentation',
@@ -158,3 +159,121 @@ class ReceiverState:
                 if any(i not in frame['mask'] for i in range(16)) or frame['coverage'] is None: return False
             if task == 'interactiveSegmentation' and frame['selection'] is None: return False
         return True
+
+
+# ---- Ready-to-map outputs. Pure functions so they can be tested without TouchDesigner. ----
+
+HAND_TASKS = ('handLandmarkDetection', 'gestureRecognition')
+HAND_POINTS = ('wrist', 'thumb_cmc', 'thumb_mcp', 'thumb_ip', 'thumb_tip',
+               'index_mcp', 'index_pip', 'index_dip', 'index_tip',
+               'middle_mcp', 'middle_pip', 'middle_dip', 'middle_tip',
+               'ring_mcp', 'ring_pip', 'ring_dip', 'ring_tip',
+               'pinky_mcp', 'pinky_pip', 'pinky_dip', 'pinky_tip')
+POSE_POINTS = ('nose', 'left_eye_inner', 'left_eye', 'left_eye_outer', 'right_eye_inner',
+               'right_eye', 'right_eye_outer', 'left_ear', 'right_ear', 'mouth_left',
+               'mouth_right', 'left_shoulder', 'right_shoulder', 'left_elbow', 'right_elbow',
+               'left_wrist', 'right_wrist', 'left_pinky', 'right_pinky', 'left_index',
+               'right_index', 'left_thumb', 'right_thumb', 'left_hip', 'right_hip',
+               'left_knee', 'right_knee', 'left_ankle', 'right_ankle', 'left_heel',
+               'right_heel', 'left_foot_index', 'right_foot_index')
+# (faceDetection keypoint, face mesh index) for the few face points worth naming.
+FACE_POINTS = {'nose': (2, 1), 'mouth': (3, 13), 'right_eye': (0, 33), 'left_eye': (1, 263)}
+TRACK_POINTS = (tuple('hand_' + n for n in HAND_POINTS) + tuple('pose_' + n for n in POSE_POINTS)
+                + tuple('face_' + n for n in FACE_POINTS))
+GESTURES = ('Closed_Fist', 'Open_Palm', 'Pointing_Up', 'Thumb_Down', 'Thumb_Up', 'Victory', 'ILoveYou')
+COORDINATES = ('image', 'bottomleft', 'centered')
+# Continuous channels: smoothed, and held on tracking loss when requested.
+SMOOTHED = ('presence', 'mask_confidence', 'first_score', 'point_x', 'point_y',
+            'hand_x', 'hand_y', 'pinch_distance')
+HELD = ('point_x', 'point_y', 'hand_x', 'hand_y', 'pinch_distance')
+
+
+def convert(x, y, mode):
+    """Image coordinates (0..1, origin top-left) to the selected output space."""
+    if mode == 'bottomleft': return x, 1 - y
+    if mode == 'centered': return 2 * x - 1, 1 - 2 * y
+    return x, y
+
+
+def channel_name(label):
+    return re.sub(r'[^a-z0-9]+', '_', str(label).lower()).strip('_') or 'object'
+
+
+def find_point(frame, name):
+    """Return the image (x, y) of a named landmark in the current frame, or None."""
+    kind, _, part = name.partition('_')
+    task, groups = frame['task'], frame['groups']
+    holistic = task == 'holisticLandmarkDetection'
+    def pick(labels, index):
+        for g in sorted(groups):
+            if holistic and groups[g]['label'] not in labels: continue
+            point = groups[g]['points'].get(index)
+            if point is not None: return point
+        return None
+    if kind == 'hand' and part in HAND_POINTS and (task in HAND_TASKS or holistic):
+        return pick(('leftHand', 'rightHand'), HAND_POINTS.index(part))
+    if kind == 'pose' and part in POSE_POINTS and task in ('poseLandmarkDetection', 'holisticLandmarkDetection'):
+        return pick(('pose',), POSE_POINTS.index(part))
+    if kind == 'face' and part in FACE_POINTS:
+        keypoint, mesh = FACE_POINTS[part]
+        if task == 'faceDetection': return pick((), keypoint)
+        if task in ('faceLandmarkDetection', 'holisticLandmarkDetection'): return pick(('face',), mesh)
+    return None
+
+
+def controls(frame, trackpoint='hand_index_tip', coordinates='image', labels=None):
+    """One value per channel. `labels` collects detection labels so class_* channels stay stable."""
+    labels = set() if labels is None else labels
+    f = frame
+    counts = f['counts'] if f else (0, 0, 0)
+    values = dict(active=int(f is not None), present=int(f is not None and any(counts)),
+                  frame=f['frame'] if f else 0, results=counts[0], detections=counts[1],
+                  groups=counts[2], inference_ms=(f['inference'] or 0) if f else 0,
+                  mask_confidence=(f['coverage'] or 0) if f else 0, first_score=0,
+                  point_found=0, point_x=0, point_y=0, hand_x=0, hand_y=0, pinch_distance=0)
+    if f:
+        point = find_point(f, trackpoint)
+        if point is not None:
+            values['point_found'] = 1
+            values['point_x'], values['point_y'] = convert(*point, coordinates)
+        if f['task'] in HAND_TASKS:
+            hand = f['groups'].get(0, {}).get('points', {})
+            if 8 in hand: values['hand_x'], values['hand_y'] = convert(*hand[8], coordinates)
+            if 4 in hand and 8 in hand: values['pinch_distance'] = math.dist(hand[4], hand[8])
+        if f['detections']: values['first_score'] = next(iter(f['detections'].values()))[1]
+        elif f['categories']: values['first_score'] = next(iter(f['categories'].values()))[1]
+        labels.update(channel_name(d[0]) for d in f['detections'].values())
+    current = {g[0] for g in f['gestures'].values()} if f else set()
+    for gesture in GESTURES:
+        values['gesture_' + gesture.lower()] = int(gesture in current)
+    present = {channel_name(d[0]) for d in f['detections'].values()} if f else set()
+    for label in sorted(labels):
+        values['class_' + label] = int(label in present)
+    return values
+
+
+def points(frame):
+    """All landmarks as rows (tx, ty, group, index), centered -1..1 with y up, for instancing."""
+    if not frame: return []
+    return [(*convert(x, y, 'centered'), g, i)
+            for g, group in sorted(frame['groups'].items())
+            for i, (x, y) in sorted(group['points'].items())]
+
+
+class OutputFilter:
+    """Exponential smoothing (time constant in seconds) and optional hold on tracking loss."""
+    def __init__(self):
+        self.state, self.held = {}, {}
+
+    def apply(self, values, dt, smooth=0.0, hold=False):
+        out = dict(values)
+        out['presence'] = float(values['present'])
+        if values['active']:
+            self.held.update({k: out[k] for k in HELD})
+        elif hold:
+            out.update({k: self.held[k] for k in HELD if k in self.held})
+        alpha = 1.0 if smooth <= 0 else 1 - math.exp(-max(dt, 0) / smooth)
+        for key in SMOOTHED:
+            previous = self.state.get(key, out[key])
+            out[key] = self.state[key] = previous + alpha * (out[key] - previous)
+        return out

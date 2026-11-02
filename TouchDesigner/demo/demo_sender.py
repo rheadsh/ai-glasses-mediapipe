@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-"""Standard-library OSC demo; sends synthetic data, never claims to be live glasses."""
+"""Standard-library OSC demo; sends synthetic data, never claims to be live glasses.
+Self-contained: copy this single file anywhere and run it with python3.
+"""
 import argparse
 import math
 import socket
 import struct
 import time
-from osc_protocol import TASKS
+
+# Same names as the iOS app (`/mediapipe/<task>/...`); dev/test_protocol.py checks they match.
+TASKS = ('objectDetection', 'imageClassification', 'imageSegmentation',
+         'interactiveSegmentation', 'gestureRecognition', 'handLandmarkDetection',
+         'imageEmbedding', 'faceDetection', 'faceLandmarkDetection',
+         'poseLandmarkDetection', 'holisticLandmarkDetection')
 
 def string(value):
     data = str(value).encode('ascii') + b'\0'
