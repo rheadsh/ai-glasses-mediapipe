@@ -108,7 +108,7 @@ class WearablesViewModel {
       do {
         try await wearables.startRegistration()
       } catch let error as RegistrationError {
-        showError(error.description)
+        showError(error.localizedDescription)
       } catch {
         showError(error.localizedDescription)
       }
@@ -120,7 +120,7 @@ class WearablesViewModel {
       do {
         try await wearables.startUnregistration()
       } catch let error as UnregistrationError {
-        showError(error.description)
+        showError(error.localizedDescription)
       } catch {
         showError(error.localizedDescription)
       }

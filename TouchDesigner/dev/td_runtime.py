@@ -1,7 +1,12 @@
 """Embedded TouchDesigner runtime. All operators are resolved relative to this DAT."""
+import copy
+import uuid
 import socket
 import time
 import numpy as np
+_session_id = str(uuid.uuid4())
+_session_started = time.time()
+_network_evidence = {}
 _receiver = None
 _filter = None
 _labels = set()
@@ -29,11 +34,21 @@ def receiver():
 def receive(address, args, source):
     # While the built-in demo runs it owns the receiver; network messages are ignored.
     if component().par.Demo.eval(): return
-    receiver().receive(address, args, source)
+    r = receiver()
+    published = r.current
+    r.receive(address, args, source)
+    # Status/test updates also increment version. Evidence records only a newly
+    # published tracking snapshot, never a later control message about it.
+    if r.current is not published and r.current is not None and r.source == source:
+        _network_evidence[r.current['task']] = dict(
+            source=source, received_at=time.time(), result=copy.deepcopy(r.current))
 
 def reset():
-    global _receiver, _last_version, _points_version, _last_cook
+    global _receiver, _last_version, _points_version, _last_cook, _session_id, _session_started
     _receiver = None
+    _session_id = str(uuid.uuid4())
+    _session_started = time.time()
+    _network_evidence.clear()
     _labels.clear()
     _demo.update(frame=0, last=0.0, started=time.monotonic(), task=None)
     _last_version = _points_version = -1
@@ -145,9 +160,12 @@ def channels(scriptOp):
     values = protocol().controls(receiver().current, comp.par.Trackpoint.eval(),
                                  comp.par.Coordinates.eval(), _labels)
     values = _filter.apply(values, dt, float(comp.par.Smooth), bool(comp.par.Holdonloss.eval()))
-    scriptOp.clear()
-    scriptOp.numSamples = 1
-    for name, value in values.items(): scriptOp.appendChan(name)[0] = value
+    # Preserve channel objects while the schema is stable; smoothing still runs each cook.
+    if tuple(channel.name for channel in scriptOp.chans()) != tuple(values):
+        scriptOp.clear()
+        scriptOp.numSamples = 1
+        for name in values: scriptOp.appendChan(name)
+    for name, value in values.items(): scriptOp[name][0] = value
 
 def points(scriptOp):
     rows = protocol().points(receiver().current)

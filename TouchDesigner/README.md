@@ -174,6 +174,8 @@ input_osc → decode_frames → tracking_data → outputs → monitor
 
 ## Robustness and limits
 
+- Incoming messages are validated before changing assembly state. Published frames are independent snapshots; indices, labels and chunk storage are bounded.
+- A complete task/frame is published once. Duplicates cannot renew tracking freshness, and expired frames remain retired until a new frame ID or sender timeout.
 - Incomplete frames never replace the last complete one; chunks from different frames
   are never mixed. Hand and gesture frames wait for their handedness.
 - Controls follow every complete frame; tables and monitor text refresh up to 10 times
@@ -204,9 +206,13 @@ the Textport:
 exec(open(project.folder + '/dev/build_project.py').read())
 ```
 
+The build fails on missing functional parameters or operator errors before saving any artifact. Cosmetic parameters may produce warnings. Saving the multiple output files is not an atomic filesystem transaction.
+
 It rebuilds only `/project1/rayban_osc`, `/project1/easy_example` and
 `/project1/points_example`. Paths come from the open project, so the repository can
 live anywhere.
+
+For native validation, reset the receiver, disable built-in Demo, run the network demo through all 11 tasks, then execute `dev/validate_project.py` in the Textport. Its report records a fresh session, per-task source/values, embedded source hashes and operator errors. It rejects embedded Python that differs from the repository. Native validation saves the receiver in a clean listening state.
 
 Validate the receiver without TouchDesigner, from this folder:
 

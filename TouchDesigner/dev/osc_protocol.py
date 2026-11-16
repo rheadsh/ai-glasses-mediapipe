@@ -1,6 +1,7 @@
 """Receiver for the iOS OSC contract. Pure Python; also embedded in the .toe.
 One active source, bounded frames, no mixing of partial/reordered UDP results.
 """
+import copy
 import math
 import re
 import time
@@ -18,6 +19,8 @@ class ReceiverState:
         self.last_frame = -1
         self.last_seen = -math.inf
         self.frames = {}
+        self.published = set()
+        self.retired_frame = -1
         self.current = None
         self.version = 0
         self.messages = 0
@@ -29,17 +32,20 @@ class ReceiverState:
 
     def clear(self, status):
         self.current = None
+        self.retired_frame = self.last_frame
         self.frames.clear()
         self.status = status
         self.version += 1
 
     def tick(self):
         if self.current is not None and self.clock() - self.last_result > self.timeout:
-            self.clear('TIMEOUT / Tracking sin actualizar durante 1 s')
+            self.clear('TIMEOUT / Tracking sin actualizar durante {:g} s'.format(self.timeout))
         if self.source is not None and self.clock() - self.last_seen > self.timeout:
-            self.clear('TIMEOUT / Sin datos durante 1 s')
+            self.clear('TIMEOUT / Sin datos durante {:g} s'.format(self.timeout))
             self.source = self.context = None
             self.last_frame = -1
+            self.retired_frame = -1
+            self.published.clear()
 
     def receive(self, address, args, source='local'):
         self.tick()
@@ -57,12 +63,17 @@ class ReceiverState:
             return
         try:
             if address == '/mediapipe/frame':
-                frame = int(args[0])
+                self.context = None
+                if len(args) != 1: raise ValueError('frame arity')
+                frame = args[0]
+                if type(frame) is not int: raise ValueError('frame type')
+                if not 1 <= frame <= 2147483647: raise ValueError('frame')
                 if frame < self.last_frame:
                     self.context = None
                     return
                 if frame > self.last_frame:
                     self.frames.clear()
+                    self.published.clear()
                     self.last_frame = frame
                 self.context = frame
                 return
@@ -70,15 +81,30 @@ class ReceiverState:
             if len(parts) < 2 or parts[0] not in TASKS or self.context is None:
                 return
             task, path = parts[0], parts[1:]
-            if path == ['active'] and int(args[0]) == 0:
-                if self.current is None or self.current['task'] == task:
-                    self.clear('STOPPED / Tracking detenido')
+            if path == ['active']:
+                if len(args) != 1 or args[0] not in (0, 1): raise ValueError('active')
+                if args[0] == 0:
+                    if self.current is None or self.current['task'] == task:
+                        self.clear('STOPPED / Tracking detenido')
                 return
-            frame = self.frames.setdefault(task, dict(
+            if self.context <= self.retired_frame:
+                return
+            frame = dict(self.frames.get(task, dict(
                 task=task, frame=self.context, counts=None, inference=None,
                 detections={}, groups={}, categories={}, gestures={}, hands={},
                 embedding_size=None, embedding={}, mask_size=None, mask={},
-                coverage=None, selection=None))
+                coverage=None, selection=None)))
+            # Only branches written by this message are copied. The stored assembly
+            # remains untouched if parsing, validation or its point budget fails.
+            branch = {'detection': 'detections', 'category': 'categories',
+                      'gesture': 'gestures', 'hand': 'hands', 'landmarks': 'groups',
+                      'embedding': 'embedding', 'mask': 'mask'}.get(path[0])
+            if branch is not None: frame[branch] = dict(frame[branch])
+            arities = {('counts',): 3, ('inferenceMs',): 1,
+                       ('embedding', 'dimensions'): 1, ('mask', 'size'): 2,
+                       ('mask', 'coverage'): 1, ('selection',): 2}
+            if tuple(path) in arities and len(args) != arities[tuple(path)]:
+                raise ValueError('arity')
             if path == ['counts']:
                 counts = tuple(int(x) for x in args[:3])
                 if len(counts) != 3 or any(x < 0 or x > 2000 for x in counts):
@@ -87,29 +113,37 @@ class ReceiverState:
             elif path == ['inferenceMs']:
                 frame['inference'] = self.finite(args[0])
             elif len(path) == 2 and path[0] == 'detection':
-                frame['detections'][int(path[1])] = [str(args[0])] + [self.finite(x) for x in args[1:6]]
-                if len(frame['detections'][int(path[1])]) != 6: raise ValueError('box')
+                index = self.index(path[1])
+                if len(args) != 6: raise ValueError('box')
+                frame['detections'][index] = [self.label(args[0])] + [self.finite(x) for x in args[1:]]
             elif len(path) == 3 and path[0] == 'landmarks':
-                group = frame['groups'].setdefault(int(path[1]), dict(count=None, points={}, label=''))
+                index = self.index(path[1])
+                group = dict(frame['groups'].get(index, dict(count=None, points={}, label='')))
+                frame['groups'][index] = group
+                if path[2] in ('count', 'label') and len(args) != 1: raise ValueError('arity')
                 if path[2] == 'count':
                     group['count'] = int(args[0])
                     if not 0 <= group['count'] <= 2000: raise ValueError('points')
-                elif path[2] == 'label': group['label'] = str(args[0])
+                elif path[2] == 'label': group['label'] = self.label(args[0])
                 elif path[2] == 'points':
                     offset = int(args[0])
                     values = [self.finite(x) for x in args[1:]]
-                    if offset < 0 or offset > 2000 or len(values) % 2: raise ValueError('chunk')
+                    if offset < 0 or offset + len(values)//2 > 2000 or len(values) % 2: raise ValueError('chunk')
+                    group['points'] = dict(group['points'])
                     group['points'].update({offset+i//2: (values[i], values[i+1]) for i in range(0, len(values), 2)})
+                else: return
             elif len(path) == 2 and path[0] in ('category', 'gesture'):
-                frame['categories' if path[0] == 'category' else 'gestures'][int(path[1])] = (str(args[0]), self.finite(args[1]))
+                if len(args) != 2: raise ValueError('arity')
+                frame['categories' if path[0] == 'category' else 'gestures'][self.index(path[1])] = (self.label(args[0]), self.finite(args[1]))
             elif len(path) == 3 and path[0] == 'hand' and path[2] == 'handedness':
-                frame['hands'][int(path[1])] = (str(args[0]), self.finite(args[1]))
+                if len(args) != 2: raise ValueError('arity')
+                frame['hands'][self.index(path[1])] = (self.label(args[0]), self.finite(args[1]))
             elif path == ['embedding', 'dimensions']:
                 frame['embedding_size'] = int(args[0])
                 if not 0 <= frame['embedding_size'] <= 8192: raise ValueError('embedding')
             elif path == ['embedding', 'values']:
                 offset = int(args[0])
-                if not 0 <= offset <= 8192: raise ValueError('offset')
+                if not 0 <= offset <= offset + len(args)-1 <= 8192: raise ValueError('offset')
                 frame['embedding'].update({offset+i: self.finite(v) for i, v in enumerate(args[1:])})
             elif path == ['mask', 'size']:
                 frame['mask_size'] = tuple(int(x) for x in args[:2])
@@ -119,15 +153,59 @@ class ReceiverState:
                 if not 0 <= row < 16 or len(args) != 17: raise ValueError('row')
                 frame['mask'][row] = [self.finite(x) for x in args[1:]]
             elif path == ['mask', 'coverage']: frame['coverage'] = self.finite(args[0])
-            elif path == ['selection']: frame['selection'] = tuple(self.finite(x) for x in args[:2])
+            elif path == ['selection']:
+                if len(args) != 2: raise ValueError('selection')
+                frame['selection'] = tuple(self.finite(x) for x in args)
+            else:
+                return
+            self.trim(frame, path)
+            if sum(len(g['points']) for g in frame['groups'].values()) > 8192:
+                raise ValueError('point budget')
+            if task in self.published: return
+            self.frames[task] = frame
             if self.complete(frame):
-                self.current = frame
+                self.current = copy.deepcopy(frame)
+                self.published.add(task)
                 self.last_result = self.clock()
                 self.seen_tasks.add(task)
                 self.status = 'LIVE / ' + task
                 self.version += 1
         except (ValueError, TypeError, IndexError, OverflowError):
             self.invalid += 1
+
+    @staticmethod
+    def index(value):
+        value = int(value)
+        if not 0 <= value < 2000: raise ValueError('index')
+        return value
+
+    @staticmethod
+    def label(value):
+        # Labels fit inside the sender's 1200-byte datagram contract. Bound direct
+        # calls as well, so untrusted labels cannot inflate assembly storage.
+        if not isinstance(value, str) or len(value) > 1024:
+            raise ValueError('label')
+        return value
+
+    @staticmethod
+    def trim(frame, path):
+        # Metadata may follow chunks. Only inspect the branch affected by this
+        # message; unchanged nested dictionaries stay shared and are never mutated.
+        if frame['counts'] is not None:
+            results, detections, groups = frame['counts']
+            routes = {'detections': 'detection', 'groups': 'landmarks',
+                      'hands': 'hand', 'categories': 'category', 'gestures': 'gesture'}
+            for name, count in (('detections', detections), ('groups', groups),
+                                ('hands', groups), ('categories', results), ('gestures', results)):
+                if path == ['counts'] or path[0] == routes[name]:
+                    frame[name] = {i: value for i, value in frame[name].items() if i < count}
+        if path[0] == 'landmarks' and int(path[1]) in frame['groups']:
+            group = frame['groups'][int(path[1])]
+            if group['count'] is not None and path[2] in ('count', 'points'):
+                group['points'] = {i: value for i, value in group['points'].items() if i < group['count']}
+        if path[0] == 'embedding' and frame['embedding_size'] is not None:
+            frame['embedding'] = {i: value for i, value in frame['embedding'].items() if i < frame['embedding_size']}
+        if path[0] == 'mask' and frame['mask_size'] == (0, 0): frame['mask'] = {}
 
     @staticmethod
     def finite(value):
@@ -224,12 +302,19 @@ def find_point(frame, name):
     return None
 
 
+class ControlValues(dict):
+    """Channel mapping with position validity metadata, never exported as channels."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.valid_positions = set()
+
+
 def controls(frame, trackpoint='hand_index_tip', coordinates='image', labels=None):
     """One value per channel. `labels` collects detection labels so class_* channels stay stable."""
     labels = set() if labels is None else labels
     f = frame
     counts = f['counts'] if f else (0, 0, 0)
-    values = dict(active=int(f is not None), present=int(f is not None and any(counts)),
+    values = ControlValues(active=int(f is not None), present=int(f is not None and any(counts)),
                   frame=f['frame'] if f else 0, results=counts[0], detections=counts[1],
                   groups=counts[2], inference_ms=(f['inference'] or 0) if f else 0,
                   mask_confidence=(f['coverage'] or 0) if f else 0, first_score=0,
@@ -238,13 +323,18 @@ def controls(frame, trackpoint='hand_index_tip', coordinates='image', labels=Non
         point = find_point(f, trackpoint)
         if point is not None:
             values['point_found'] = 1
+            values.valid_positions.update(('point_x', 'point_y'))
             values['point_x'], values['point_y'] = convert(*point, coordinates)
         if f['task'] in HAND_TASKS:
             hand = f['groups'].get(0, {}).get('points', {})
-            if 8 in hand: values['hand_x'], values['hand_y'] = convert(*hand[8], coordinates)
-            if 4 in hand and 8 in hand: values['pinch_distance'] = math.dist(hand[4], hand[8])
-        if f['detections']: values['first_score'] = next(iter(f['detections'].values()))[1]
-        elif f['categories']: values['first_score'] = next(iter(f['categories'].values()))[1]
+            if 8 in hand:
+                values['hand_x'], values['hand_y'] = convert(*hand[8], coordinates)
+                values.valid_positions.update(('hand_x', 'hand_y'))
+            if 4 in hand and 8 in hand:
+                values['pinch_distance'] = math.dist(hand[4], hand[8])
+                values.valid_positions.add('pinch_distance')
+        if f['detections']: values['first_score'] = f['detections'][min(f['detections'])][1]
+        elif f['categories']: values['first_score'] = f['categories'][min(f['categories'])][1]
         for name in (channel_name(d[0]) for d in f['detections'].values()):
             if name in labels or len(labels) < MAX_LABELS: labels.add(name)
     current = {g[0] for g in f['gestures'].values()} if f else set()
@@ -272,10 +362,11 @@ class OutputFilter:
     def apply(self, values, dt, smooth=0.0, hold=False):
         out = dict(values)
         out['presence'] = float(values['present'])
-        if values['active']:
-            self.held.update({k: out[k] for k in HELD})
-        elif hold:
-            out.update({k: self.held[k] for k in HELD if k in self.held})
+        valid = getattr(values, 'valid_positions',
+                        set(HELD) if values['point_found'] else set())
+        for key in HELD:
+            if key in valid: self.held[key] = out[key]
+            elif hold and key in self.held: out[key] = self.held[key]
         alpha = 1.0 if smooth <= 0 else 1 - math.exp(-max(dt, 0) / smooth)
         for key in SMOOTHED:
             previous = self.state.get(key, out[key])

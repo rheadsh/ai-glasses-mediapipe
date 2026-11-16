@@ -1,0 +1,54 @@
+name: Validate
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  portable:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python3 -B mediapipe-ios/Scripts/validate_resources.py
+      - run: python3 -B -m unittest discover -s TouchDesigner/dev -p 'test_*.py' -v
+      - run: python3 -B -m unittest discover -s mediapipe-ios/Scripts -p 'test_*.py' -v
+  ios:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check installed Xcode
+        id: xcode
+        run: |
+          python3 - <<'PY'
+          import os, re, subprocess, sys
+          version = subprocess.check_output(['xcodebuild', '-version'], text=True)
+          print(version)
+          match = re.search(r'Xcode (\d+)\.(\d+)', version)
+          supported = bool(match and tuple(map(int, match.groups())) >= (27, 1))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
+              stream.write(f'supported={str(supported).lower()}\n')
+          if not supported:
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as stream:
+                  stream.write('iOS validation failed preflight: runner requires Xcode >=27.1; no iOS checks ran.\n')
+              sys.exit('Xcode >=27.1 is required for iOS validation')
+          PY
+      - name: Install pinned CocoaPods dependencies
+        if: steps.xcode.outputs.supported == 'true'
+        working-directory: mediapipe-ios
+        run: |
+          bundle install
+          bundle exec pod install
+      - name: Run signed serial simulator suites and inspect Release
+        if: steps.xcode.outputs.supported == 'true'
+        run: |
+          set -euo pipefail
+          simulator_id=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; print(next(d["udid"] for ds in json.load(sys.stdin)["devices"].values() for d in ds if d["name"].startswith("iPhone")))')
+          xcodebuild -workspace mediapipe-ios/mediapipe-ios.xcworkspace -scheme mediapipe-ios -destination "platform=iOS Simulator,id=$simulator_id" -derivedDataPath "$RUNNER_TEMP/mediapipe-derived" -parallel-testing-enabled NO test
+          xcodebuild -workspace mediapipe-ios/mediapipe-ios.xcworkspace -scheme mediapipe-ios -configuration Release -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/mediapipe-derived" build
+          python3 -B mediapipe-ios/Scripts/validate_resources.py --release-app "$RUNNER_TEMP/mediapipe-derived/Build/Products/Release-iphonesimulator/mediapipe-ios.app"

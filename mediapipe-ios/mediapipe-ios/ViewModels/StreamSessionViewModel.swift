@@ -23,7 +23,7 @@ enum StreamingStatus {
 final class StreamSessionViewModel {
   // MARK: - State
 
-  let oscOutput = OSCOutput()
+  let oscOutput: OSCOutput
 
   var currentVideoFrame: UIImage?
   var hasReceivedFirstFrame: Bool = false
@@ -45,6 +45,7 @@ final class StreamSessionViewModel {
   var analyzedFrameCount: Int = 0
   var isVisionAnalysisEnabled: Bool = true {
     didSet {
+      guard oldValue != isVisionAnalysisEnabled else { return }
       analysisGeneration += 1
       if !isVisionAnalysisEnabled {
         resetVisionAnalysisResults()
@@ -79,22 +80,25 @@ final class StreamSessionViewModel {
   #endif
   private static let keepRunningWhenLockedKey = "background.keepRunningWhenLocked"
   private let defaults: UserDefaults
-  private let frameConverter = VideoFrameImageConverter()
   private var streamUsesCompressedVideo = false
   private var isAppActive = true
   private var deliveredFrameCount = 0
   private var frameWatchdog: Task<Void, Never>?
+  private var supervisedVideoError: StreamError?
   /// How long frames may stop after a video error while locked before the stream is ended.
   var backgroundErrorGrace: Duration = .seconds(5)
   private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
   private let sessionManager: DeviceSessionManager
   private let wearables: WearablesInterface
   private let visionAnalyzer = MediaPipeVisionAnalyzer()
-  private var analysisGeneration: Int = 0
+  private(set) var analysisGeneration: Int = 0
+  private var preparationGeneration: Int = 0
+  private(set) var streamGeneration: Int = 0
+  private var startGeneration: Int = 0
   private var isStartingSession = false
+  private var isStoppingStream = false
   private var needsAnalyzerPrepare = false
   private var photoCaptureTimeout: Task<Void, Never>?
-  private let frameGate = FrameGate()
   private var stream: MWDATCamera.Stream?
   private var camera: MWDATCamera.Camera?
 
@@ -108,6 +112,7 @@ final class StreamSessionViewModel {
   init(wearables: WearablesInterface, defaults: UserDefaults = .standard) {
     self.wearables = wearables
     self.defaults = defaults
+    self.oscOutput = OSCOutput(defaults: defaults)
     self.keepsRunningWhenLocked = defaults.bool(forKey: Self.keepRunningWhenLockedKey)
     self.sessionManager = DeviceSessionManager(wearables: wearables)
     #if DEBUG
@@ -127,19 +132,24 @@ final class StreamSessionViewModel {
     // create a second Camera.
     guard !isStartingSession, streamingStatus == .stopped else { return }
     isStartingSession = true
-    defer { isStartingSession = false }
+    startGeneration += 1
+    let generation = startGeneration
+    defer { if startGeneration == generation { isStartingSession = false } }
     let permission = Permission.camera
     do {
       var status = try await wearables.checkPermissionStatus(permission)
+      guard startGeneration == generation, !Task.isCancelled else { return }
       if status != .granted {
         status = try await wearables.requestPermission(permission)
       }
+      guard startGeneration == generation, !Task.isCancelled else { return }
       guard status == .granted else {
         showError("Permission denied")
         return
       }
-      await startSession()
+      await startSession(generation: generation)
     } catch {
+      guard startGeneration == generation, !Task.isCancelled else { return }
       // Use `localizedDescription` for user-facing text — `description` is
       // always English and intended for logs.
       showError("Permission error: \(error.localizedDescription)")
@@ -147,11 +157,29 @@ final class StreamSessionViewModel {
   }
 
   func stopSession() {
-    stream?.stop()
+    isStoppingStream = true
+    if stream != nil { streamingStatus = .waiting }
+    supervisedVideoError = nil
+    frameWatchdog?.cancel()
+    startGeneration += 1
+    isStartingSession = false
+    analysisGeneration += 1
+    resetVisionAnalysisResults()
+    if let stream {
+      stream.stop()
+    } else {
+      sessionManager.stopCurrentSession()
+    }
   }
 
   /// Stops both the stream and the underlying device session. Call in test tearDown.
   func endSession() {
+    isStoppingStream = false
+    supervisedVideoError = nil
+    startGeneration += 1
+    streamGeneration += 1
+    preparationGeneration += 1
+    isStartingSession = false
     camera?.stop()
     camera = nil
     stream = nil
@@ -192,6 +220,7 @@ final class StreamSessionViewModel {
     analysisGeneration += 1
     resetVisionAnalysisResults()
     visionAnalyzer.reset()
+    preparationGeneration += 1
     guard model.bundledModelPath != nil else {
       visionAnalysisStatus = .unavailable(
         "No se encontró \(model.resourceName).tflite en el bundle."
@@ -278,7 +307,7 @@ final class StreamSessionViewModel {
 
   // MARK: - Private
 
-  private func startSession() async {
+  private func startSession(generation: Int) async {
     if needsAnalyzerPrepare {
       needsAnalyzerPrepare = false
       prepareSelectedVisionTask()
@@ -286,12 +315,22 @@ final class StreamSessionViewModel {
     let deviceSession: DeviceSession
     do {
       deviceSession = try await sessionManager.getSession()
+      guard startGeneration == generation, !Task.isCancelled else {
+        // Cancellation after getSession succeeds must release the session owned by
+        // this start, without touching a replacement created after endSession.
+        if startGeneration == generation {
+          sessionManager.stopSessionIfCurrent(deviceSession)
+        }
+        return
+      }
       requiresDATAppUpdate = false
     } catch DeviceSessionError.datAppOnTheGlassesUpdateRequired {
+      guard startGeneration == generation, !Task.isCancelled else { return }
       requiresDATAppUpdate = true
       showError(DeviceSessionError.datAppOnTheGlassesUpdateRequired.localizedDescription)
       return
     } catch {
+      guard startGeneration == generation, !Task.isCancelled else { return }
       showError("Failed to start session: \(error.localizedDescription)")
       return
     }
@@ -325,32 +364,52 @@ final class StreamSessionViewModel {
   }
 
   private func setupListeners(for stream: MWDATCamera.Stream) {
+    isStoppingStream = false
+    streamGeneration += 1
+    let generation = streamGeneration
     stateListenerToken = stream.statePublisher.listen { [weak self] state in
-      Task { @MainActor in self?.handleStateChange(state) }
+      Task { @MainActor in
+        self?.handleStateChange(state, generation: generation)
+      }
     }
 
     // Convert off the main actor and drop frames while the main actor is still
     // consuming the previous one, so preview work cannot pile up.
-    let gate = frameGate
-    let converter = frameConverter
+    // Each stream owns its decoder history and gate; callbacks still unwinding from a
+    // previous stream cannot alter the new stream's HEVC references or back pressure.
+    let gate = FrameGate()
+    let converter = VideoFrameImageConverter()
     let compressed = streamUsesCompressedVideo
     videoFrameListenerToken = stream.videoFramePublisher.listen { [weak self] frame in
-      guard gate.tryEnter() else { return }
       // Compressed frames are decoded on the CPU/VideoToolbox: the GPU is off limits in the
       // background. `makeUIImage()` is only used for the foreground-only raw stream.
-      let image = compressed ? converter.image(from: frame.sampleBuffer) : frame.makeUIImage()
+      // Every compressed sample must reach the decoder, including reference frames whose
+      // preview is dropped. Back pressure applies only after decoding.
+      let image: UIImage?
+      if compressed {
+        guard let pixels = converter.pixelBuffer(
+          from: frame.sampleBuffer, acceptingDecodedFrame: { gate.tryEnter() }) else { return }
+        image = VideoFrameImageConverter.image(from: pixels)
+      } else {
+        guard gate.tryEnter() else { return }
+        image = frame.makeUIImage()
+      }
       Task { @MainActor in
         gate.leave()
-        self?.handleVideoFrame(image)
+        self?.handleVideoFrame(image, generation: generation)
       }
     }
 
     errorListenerToken = stream.errorPublisher.listen { [weak self] error in
-      Task { @MainActor in self?.handleStreamError(error) }
+      Task { @MainActor in
+        self?.handleStreamError(error, generation: generation)
+      }
     }
 
     photoDataListenerToken = stream.photoDataPublisher.listen { [weak self] data in
-      Task { @MainActor in self?.handlePhotoData(data) }
+      Task { @MainActor in
+        self?.handlePhotoData(data, generation: generation)
+      }
     }
   }
 
@@ -361,9 +420,14 @@ final class StreamSessionViewModel {
     photoDataListenerToken = nil
   }
 
-  private func handleStateChange(_ state: StreamState) {
+  func handleStateChange(_ state: StreamState, generation: Int) {
+    guard streamGeneration == generation else { return }
+    guard !isStoppingStream || state == .stopped else { return }
     switch state {
     case .stopped:
+      isStoppingStream = false
+      supervisedVideoError = nil
+      streamGeneration += 1
       currentVideoFrame = nil
       streamingStatus = .stopped
       camera?.stop()
@@ -378,14 +442,26 @@ final class StreamSessionViewModel {
       frameWatchdog?.cancel()
       sessionManager.stopCurrentSession()
     case .waitingForDevice, .starting, .stopping, .paused:
-      oscOutput.clear()
+      frameWatchdog?.cancel()
+      frameWatchdog = nil
+      analysisGeneration += 1
+      resetVisionAnalysisResults()
+      currentVideoFrame = nil
+      hasReceivedFirstFrame = false
       streamingStatus = .waiting
     case .streaming:
+      let wasStreaming = streamingStatus == .streaming
       streamingStatus = .streaming
+      if !wasStreaming, let error = supervisedVideoError {
+        superviseFrames(after: error)
+      }
     }
   }
 
-  private func handleVideoFrame(_ image: UIImage?) {
+  func handleVideoFrame(_ image: UIImage?, generation: Int) {
+    guard !isStoppingStream else { return }
+    guard streamGeneration == generation else { return }
+    guard streamingStatus == .streaming else { return }
     #if DEBUG
     // Keep the accessibility tree stable for control tests. Native streaming continues;
     // DAT integration and pipeline tests do not pass this flag and process live frames.
@@ -405,7 +481,8 @@ final class StreamSessionViewModel {
 
   private func prepareSelectedVisionTask() {
     visionAnalysisStatus = .preparing
-    let generation = analysisGeneration
+    preparationGeneration += 1
+    let generation = preparationGeneration
     let modelPath: String?
     if selectedVisionTask == .objectDetection {
       modelPath = selectedObjectDetectionModel.bundledModelPath
@@ -419,7 +496,7 @@ final class StreamSessionViewModel {
 
     visionAnalyzer.configure(task: selectedVisionTask, modelPath: modelPath) { [weak self] result in
       Task { @MainActor [weak self] in
-        guard let self, self.analysisGeneration == generation else { return }
+        guard let self, self.preparationGeneration == generation else { return }
         switch result {
         case .success:
           self.visionAnalysisStatus = .ready
@@ -442,31 +519,36 @@ final class StreamSessionViewModel {
       selectedVisionTask == .interactiveSegmentation
       ? interactiveSegmentationPoint : nil
 
-    visionAnalyzer.submit(image: image, interactionPoint: interactionPoint) { [weak self] result in
+    visionAnalyzer.submit(image: image, interactionPoint: interactionPoint, makePreview: isAppActive) { [weak self] result in
       Task { @MainActor [weak self] in
-        guard let self,
-          self.isVisionAnalysisEnabled,
-          self.streamingStatus == .streaming,
-          self.analysisGeneration == generation
-        else {
-          return
-        }
-        switch result {
-        case .success(let result):
-          self.oscOutput.publish(result, task: self.selectedVisionTask)
-          self.objectDetections = result.detections
-          self.landmarkGroups = result.landmarkGroups
-          self.segmentationMask = result.maskImage
-          self.analysisSummary = result.summary
-          self.analysisResultCount = result.resultCount
-          self.inferenceTimeMilliseconds = result.inferenceTimeMilliseconds
-          self.analyzedFrameCount += 1
-        case .failure(let error):
-          if error is MediaPipeVisionAnalyzerError { return }
-          self.visionAnalysisStatus = .unavailable(error.localizedDescription)
-          self.resetVisionAnalysisResults()
-        }
+        self?.handleAnalysisResult(result, generation: generation)
       }
+    }
+  }
+
+  /// Accept results at the actor boundary, where a pause/task change can invalidate
+  /// inference that was already queued on the serial worker.
+  func handleAnalysisResult(_ result: Result<VisionAnalysisResult, Error>, generation: Int) {
+    guard !isStoppingStream, isVisionAnalysisEnabled,
+      streamingStatus == .streaming,
+      analysisGeneration == generation
+    else {
+      return
+    }
+    switch result {
+    case .success(let result):
+      oscOutput.publish(result, task: selectedVisionTask)
+      objectDetections = result.detections
+      landmarkGroups = result.landmarkGroups
+      segmentationMask = result.maskImage
+      analysisSummary = result.summary
+      analysisResultCount = result.resultCount
+      inferenceTimeMilliseconds = result.inferenceTimeMilliseconds
+      analyzedFrameCount += 1
+    case .failure(let error):
+      if error is MediaPipeVisionAnalyzerError { return }
+      visionAnalysisStatus = .unavailable(error.localizedDescription)
+      resetVisionAnalysisResults()
     }
   }
 
@@ -481,7 +563,9 @@ final class StreamSessionViewModel {
     analyzedFrameCount = 0
   }
 
-  func handleStreamError(_ error: StreamError) {
+  func handleStreamError(_ error: StreamError, generation: Int? = nil) {
+    guard !isStoppingStream else { return }
+    if let generation, streamGeneration != generation { return }
     let message = error.localizedDescription
     NSLog("[mediapipe-ios] DAT stream error: \(error) (appActive=\(isAppActive), compressed=\(streamUsesCompressedVideo))")
     // A failed photo capture is reported here; unblock the capture button.
@@ -500,20 +584,40 @@ final class StreamSessionViewModel {
   }
 
   private func superviseFrames(after error: StreamError) {
+    supervisedVideoError = error
     frameWatchdog?.cancel()
-    let baseline = deliveredFrameCount
+    let generation = streamGeneration
+    let initialFrameCount = deliveredFrameCount
     frameWatchdog = Task { [weak self, grace = backgroundErrorGrace] in
-      try? await Task.sleep(for: grace)
-      guard !Task.isCancelled, let self, self.isStreaming else { return }
-      if self.deliveredFrameCount == baseline {
-        NSLog("[mediapipe-ios] No frames after a video error while locked; ending the stream")
-        self.stopSession()
-        self.showError(error.localizedDescription)
+      var baseline: Int? = initialFrameCount
+      while !Task.isCancelled {
+        do { try await Task.sleep(for: grace) } catch { return }
+        guard let self, self.isStreaming, self.streamGeneration == generation else { return }
+        baseline = self.checkFrameWatchdogWindow(
+          previousFrameCount: baseline, currentFrameCount: self.deliveredFrameCount,
+          generation: generation, error: error)
       }
     }
   }
 
-  private func handlePhotoData(_ data: PhotoData) {
+  /// A window starts only while streaming. DAT pauses are temporary and reset the
+  /// baseline, so returning to streaming receives a fresh grace window.
+  func checkFrameWatchdogWindow(
+    previousFrameCount: Int?, currentFrameCount: Int, generation: Int, error: StreamError
+  ) -> Int? {
+    guard streamGeneration == generation, streamingStatus == .streaming else { return nil }
+    if let previousFrameCount, currentFrameCount == previousFrameCount {
+      NSLog("[mediapipe-ios] No frames after a video error; ending the stream")
+      stopSession()
+      showError(error.localizedDescription)
+      return nil
+    }
+    return currentFrameCount
+  }
+
+  func handlePhotoData(_ data: PhotoData, generation: Int) {
+    guard !isStoppingStream else { return }
+    guard streamGeneration == generation else { return }
     finishPhotoCapture()
     if let image = UIImage(data: data.data) {
       capturedPhoto = image

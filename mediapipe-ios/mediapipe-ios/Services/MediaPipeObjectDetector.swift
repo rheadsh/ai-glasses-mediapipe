@@ -56,6 +56,11 @@ final class MediaPipeVisionAnalyzer: @unchecked Sendable {
 
     inferenceQueue.async { [weak self] in
       guard let self else { return }
+      // Superseded requests must not spend time loading a model that will be discarded.
+      self.stateLock.lock()
+      let isRequested = self.generation == requestedGeneration
+      self.stateLock.unlock()
+      guard isRequested else { return }
       autoreleasepool {
         do {
           guard FileManager.default.fileExists(atPath: modelPath) else {
@@ -86,6 +91,7 @@ final class MediaPipeVisionAnalyzer: @unchecked Sendable {
   func submit(
     image: UIImage,
     interactionPoint: CGPoint?,
+    makePreview: Bool = true,
     completion: @escaping @Sendable (Result<VisionAnalysisResult, Error>) -> Void
   ) {
     stateLock.lock()
@@ -116,7 +122,8 @@ final class MediaPipeVisionAnalyzer: @unchecked Sendable {
             runtime: runtime,
             image: mediaPipeImage,
             imageSize: image.size,
-            interactionPoint: interactionPoint
+            interactionPoint: interactionPoint,
+            makePreview: makePreview
           )
           let elapsed = start.duration(to: .now)
           let milliseconds =
@@ -243,7 +250,8 @@ final class MediaPipeVisionAnalyzer: @unchecked Sendable {
     runtime: Runtime,
     image: MPImage,
     imageSize: CGSize,
-    interactionPoint: CGPoint?
+    interactionPoint: CGPoint?,
+    makePreview: Bool
   ) throws -> VisionAnalysisResult {
     switch runtime {
     case .objectDetector(let detector):
@@ -274,28 +282,30 @@ final class MediaPipeVisionAnalyzer: @unchecked Sendable {
 
     case .imageSegmenter(let segmenter):
       let result = try segmenter.segment(image: image)
-      let mask = result.confidenceMasks?.first.flatMap { maskImage(from: $0, style: .cyan) }
+      let confidenceMask = result.confidenceMasks?.first
+      let mask = makePreview ? confidenceMask.flatMap { maskImage(from: $0, style: .cyan) } : nil
       return VisionAnalysisResult(
         oscMessages: segmentationMessages(result.confidenceMasks?.first),
         detections: [], landmarkGroups: [], maskImage: mask,
-        summary: mask == nil ? "Sin máscara" : "Persona segmentada",
-        resultCount: mask == nil ? 0 : 1, inferenceTimeMilliseconds: 0)
+        summary: confidenceMask == nil ? "Sin máscara" : "Persona segmentada",
+        resultCount: confidenceMask == nil ? 0 : 1, inferenceTimeMilliseconds: 0)
 
     case .interactiveSegmenter(let segmenter):
       let point = interactionPoint ?? CGPoint(x: 0.5, y: 0.5)
       let keypoint = NormalizedKeypoint(location: point, label: nil, score: 0)
       let roi = RegionOfInterest(normalizedKeyPoint: keypoint)
       let result = try segmenter.segment(image: image, regionOfInterest: roi)
-      let mask = result.confidenceMasks?.first.flatMap { maskImage(from: $0, style: .purple) }
+      let confidenceMask = result.confidenceMasks?.first
+      let mask = makePreview ? confidenceMask.flatMap { maskImage(from: $0, style: .purple) } : nil
       let pointGroup = VisionLandmarkGroup(points: [point], connections: [], style: .orange)
       return VisionAnalysisResult(
         oscMessages: segmentationMessages(result.confidenceMasks?.first) + [
           OSCMessage(address: "/selection", arguments: [.float(Float(point.x)), .float(Float(point.y))])
         ],
         detections: [], landmarkGroups: [pointGroup], maskImage: mask,
-        summary: mask == nil
+        summary: confidenceMask == nil
           ? "Toca el objeto a segmentar" : "Segmentación en el punto seleccionado",
-        resultCount: mask == nil ? 0 : 1, inferenceTimeMilliseconds: 0)
+        resultCount: confidenceMask == nil ? 0 : 1, inferenceTimeMilliseconds: 0)
 
     case .gestureRecognizer(let recognizer):
       let result = try recognizer.recognize(image: image)

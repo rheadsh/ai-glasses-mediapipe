@@ -41,6 +41,8 @@ struct StreamSessionView: View {
       // Leaving the flow ends the stream, the device session and OSC output.
       viewModel?.endSession()
       viewModel?.oscOutput.shutdown()
+      // A later appearance needs a fresh owner with active device monitoring.
+      viewModel = nil
     }
   }
 }

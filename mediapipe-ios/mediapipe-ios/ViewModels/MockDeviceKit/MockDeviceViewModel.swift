@@ -100,7 +100,7 @@ extension MockDeviceCardView {
           self.showCameraPermissionAlert = true
           return
         }
-        await device.services.camera.setCameraFeed(cameraFacing: facing)
+        device.services.camera.setCameraFeed(cameraFacing: facing)
         self.cameraSource = facing
         self.hasCameraFeed = false
       }

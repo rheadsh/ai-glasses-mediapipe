@@ -22,7 +22,7 @@ The app UI is in Spanish. Labels are shown here in English with the Spanish labe
 - Back pressure: if MediaPipe is still busy, the new frame is dropped instead of queueing work.
 - Optional locked-screen mode: compressed HEVC stream, CPU decoding, and no preview work in the background, so analysis and OSC can keep running with the iPhone locked.
 - Light and dark appearance support.
-- Photo capture and `MWDATMockDevice` support in Debug builds.
+- Photo capture and `MWDATMockDevice` support in Debug builds. Release excludes the mock framework and the bundled photo/video fixtures while keeping all pinned inference models.
 
 ## Architecture
 
@@ -41,7 +41,7 @@ MWDATCamera.VideoFrame
                                SwiftUI overlay
 ```
 
-Frames are converted off the main actor (and dropped while the main actor is still handling the previous one). With the default `raw` codec DAT converts them (`makeUIImage()`); in locked-screen mode `VideoFrameImageConverter` decodes the compressed HEVC samples on the CPU with VideoToolbox.
+Frames are converted off the main actor. Raw frames may be dropped before conversion; compressed HEVC samples are always decoded in stream order before preview/inference delivery is dropped, preserving reference frames. With the default `raw` codec DAT converts them (`makeUIImage()`); in locked-screen mode `VideoFrameImageConverter` decodes the compressed HEVC samples on the CPU with VideoToolbox.
 
 `StreamSessionViewModel` coordinates the session and the observable state. `MediaPipeVisionAnalyzer` wraps the Tasks, runs everything on a serial queue, and keeps exactly one runtime. `DetectionGeometry` keeps the conversion between model coordinates and the `aspectFill` preview separate and testable.
 
@@ -85,7 +85,7 @@ The models ship in `mediapipe-ios/Models` so inference works without a network c
 - the `fb-viewapp` allowlist;
 - Bluetooth, local network, camera, and photo library usage descriptions.
 
-Debug and Release both use `META_APP_ID = 0`, the bundle ID `com.rheadsh.mediapipe-ios`, and the original developer's team, which works for Developer Mode only. For distribution, or to build with a different team, replace `META_APP_ID`, `CLIENT_TOKEN`, the bundle identifier, and the Team ID with the values from your project in the Wearables Developer Center and Signing & Capabilities.
+This app intentionally stays in DAT Developer Mode; no separate Meta app registration is required for this setup. Debug and Release both use `META_APP_ID = 0`, the bundle ID `com.rheadsh.mediapipe-ios`, and the original developer's team, which works for Developer Mode only. Developer Mode is preserved in Release as well. If you later choose registered distribution, or build with a different team, replace `META_APP_ID`, `CLIENT_TOKEN`, the bundle identifier, and the Team ID with the values from your project in the Wearables Developer Center and Signing & Capabilities.
 
 ## Usage
 
@@ -105,7 +105,7 @@ Switching tasks invalidates pending results, releases the previous model, and pr
 
 DAT pauses `VideoCodec.raw` streams when the app goes to the background. With **Locked screen** on, the app streams compressed HEVC (`VideoCodec.hvc1`), which DAT keeps delivering in the background, decodes it with `VideoFrameImageConverter` (CPU only, since the GPU is not available), stops refreshing the preview while the app is not active, and keeps running MediaPipe and OSC. The Bluetooth and external-accessory background modes in `Info.plist` keep the app alive while the glasses stream.
 
-- DAT can report `Critical error, the stream should end` (`StreamError.videoStreamingError`) when the phone locks or the app returns. The app judges by frames: if they keep arriving it shows nothing; if they stop for 5 seconds it ends the stream, clears OSC, and shows the error. Other errors are always shown. Every DAT error is logged (`[mediapipe-ios] DAT stream error: ...`).
+- DAT can report `Critical error, the stream should end` (`StreamError.videoStreamingError`) when the phone locks or the app returns. The app judges by frames: if they keep arriving it shows nothing; if they stop for a full supervision window it ends the stream, clears OSC, and shows the error. Supervision continues after healthy windows; temporary DAT pauses suspend it and receive a new grace window on resume. Other errors are always shown. Every DAT error is logged (`[mediapipe-ios] DAT stream error: ...`).
 - The app also asks iOS for extra background time when it leaves the foreground while streaming in this mode.
 - iOS can still suspend the app (memory, battery saver, thermal state). Inference runs on the CPU only and can be slower than in the foreground.
 - Verified with MockDeviceKit, real HEVC samples, and real glasses with a locked iPhone. Re-check it on the hardware and iOS version you will use in an installation.
@@ -154,7 +154,9 @@ All 11 Vision Tasks can send their results over OSC/UDP to interactive installat
 - Lite0 is the default for real-time use; Lite2 can be slower, especially in the simulator.
 - The UI receives only finished results, delivered through the `MainActor`.
 - Frame conversion runs off the main actor and frames are dropped while the previous one is still being handled.
-- The preview is not refreshed while the app is not active.
+- The preview is not refreshed and segmentation preview masks are not generated while the app is not active. Task results and OSC payloads are preserved.
+- OSC tracking-message construction, encoding, and network submission run off the main actor.
+- Model requests superseded before loading begins are discarded.
 
 ## References
 

@@ -114,7 +114,7 @@ final class OSCOutput {
     let now = ProcessInfo.processInfo.systemUptime
     guard now - lastSent >= 1 / Double(rate) else { return }
     activeTask = task
-    send(OSCTrackingMessages.make(result, task: task))
+    send(makeMessages: { OSCTrackingMessages.make(result, task: task) })
   }
 
   func clear(cancelConnection: Bool = false) {
@@ -133,6 +133,14 @@ final class OSCOutput {
   }
 
   private func send(_ messages: [OSCMessage], force: Bool = false, cancelAfterSending: Bool = false) {
+    send(makeMessages: { messages }, force: force, cancelAfterSending: cancelAfterSending)
+  }
+
+  private func send(
+    makeMessages: @escaping @Sendable () -> [OSCMessage],
+    force: Bool = false,
+    cancelAfterSending: Bool = false
+  ) {
     guard enabled, ready, let connection, force || !busy else {
       if cancelAfterSending { self.connection?.cancel() }
       return
@@ -143,7 +151,7 @@ final class OSCOutput {
     let generation = generation
     // Encoding and network submission run outside the main actor. No frame queue accumulates.
     queue.async { [weak self] in
-      let packets = OSCPacketEncoder.packets(messages: messages, frameID: frameID)
+      let packets = OSCPacketEncoder.packets(messages: makeMessages(), frameID: frameID)
       let group = DispatchGroup()
       let errors = OSCTransmissionError()
       for packet in packets {

@@ -37,6 +37,32 @@ final class VideoFrameImageConverterTests: XCTestCase {
     XCTAssertNotNil(converter.image(from: compressed))
   }
 
+  func testDecodesDependentHEVCFramesWhenIntermediatePreviewsAreDropped() throws {
+    let samples = try encodeHEVCSequence(try makePixelBuffer(), count: 6)
+    XCTAssertEqual(samples.count, 6)
+    let dependentSample = try XCTUnwrap(samples.dropFirst().first)
+    let attachments = try XCTUnwrap(CMSampleBufferGetSampleAttachmentsArray(
+      dependentSample, createIfNecessary: false) as? [[String: Any]])
+    XCTAssertEqual(attachments.first?[kCMSampleAttachmentKey_NotSync as String] as? Bool, true,
+      "Regression fixture must include dependent frames")
+    let converter = VideoFrameImageConverter()
+    var latest: CVPixelBuffer?
+    for (index, sample) in samples.enumerated() {
+      // Exercise the same decoder/presentation gate as the stream listener. Reject even
+      // the keyframe's presentation; the final dependent frame must still decode.
+      let accepted = index == samples.count - 1
+      let pixels = converter.pixelBuffer(from: sample, acceptingDecodedFrame: { accepted })
+      if accepted {
+        latest = try XCTUnwrap(pixels)
+      } else {
+        XCTAssertNil(pixels)
+      }
+    }
+    let image = try XCTUnwrap(VideoFrameImageConverter.image(from: try XCTUnwrap(latest)))
+    XCTAssertEqual(Int(image.size.width * image.scale), width)
+    XCTAssertEqual(Int(image.size.height * image.scale), height)
+  }
+
   // MARK: - Fixtures
 
   private func makePixelBuffer() throws -> CVPixelBuffer {
@@ -76,6 +102,10 @@ final class VideoFrameImageConverterTests: XCTestCase {
   }
 
   private func encodeHEVC(_ pixelBuffer: CVPixelBuffer) throws -> CMSampleBuffer {
+    try XCTUnwrap(encodeHEVCSequence(pixelBuffer, count: 1).first)
+  }
+
+  private func encodeHEVCSequence(_ pixelBuffer: CVPixelBuffer, count: Int) throws -> [CMSampleBuffer] {
     var created: VTCompressionSession?
     let createStatus = VTCompressionSessionCreate(
       allocator: nil, width: Int32(width), height: Int32(height),
@@ -85,20 +115,37 @@ final class VideoFrameImageConverterTests: XCTestCase {
     let session = try XCTUnwrap(created, "HEVC encoder unavailable: \(createStatus)")
     defer { VTCompressionSessionInvalidate(session) }
 
-    let output = EncodedFrame()
-    let encodeStatus = VTCompressionSessionEncodeFrame(
-      session, imageBuffer: pixelBuffer, presentationTimeStamp: .zero, duration: .invalid,
-      frameProperties: [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary,
-      infoFlagsOut: nil
-    ) { status, _, sample in
-      if status == noErr { output.sample = sample }
+    XCTAssertEqual(VTSessionSetProperty(session,
+      key: kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanFalse), noErr)
+    XCTAssertEqual(VTSessionSetProperty(session,
+      key: kVTCompressionPropertyKey_MaxKeyFrameInterval, value: 60 as CFNumber), noErr)
+    let output = EncodedFrames()
+    for index in 0..<count {
+      let encodeStatus = VTCompressionSessionEncodeFrame(
+        session, imageBuffer: pixelBuffer,
+        presentationTimeStamp: CMTime(value: Int64(index), timescale: 24),
+        duration: CMTime(value: 1, timescale: 24),
+        frameProperties: index == 0
+          ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary : nil,
+        infoFlagsOut: nil
+      ) { status, _, sample in
+        if status == noErr, let sample { output.append(sample) }
+      }
+      XCTAssertEqual(encodeStatus, noErr)
     }
-    XCTAssertEqual(encodeStatus, noErr)
-    VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid)
-    return try XCTUnwrap(output.sample, "HEVC encoder produced no frame")
+    XCTAssertEqual(VTCompressionSessionCompleteFrames(session,
+      untilPresentationTimeStamp: .invalid), noErr)
+    return output.samples
   }
 }
 
-private final class EncodedFrame: @unchecked Sendable {
-  var sample: CMSampleBuffer?
+private final class EncodedFrames: @unchecked Sendable {
+  private let lock = NSLock()
+  private(set) var samples: [CMSampleBuffer] = []
+
+  func append(_ sample: CMSampleBuffer) {
+    lock.lock()
+    defer { lock.unlock() }
+    samples.append(sample)
+  }
 }

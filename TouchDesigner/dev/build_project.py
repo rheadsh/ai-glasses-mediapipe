@@ -15,13 +15,15 @@ PROTOCOL = {}
 exec((SRC/'osc_protocol.py').read_text(encoding='utf-8'), PROTOCOL)
 WARNINGS = []
 
-def setpar(target, name, value=None, expr=None):
-    """Optional cosmetic settings: record a failure instead of aborting the build."""
+def setpar(target, name, value=None, expr=None, optional=False):
+    """Functional settings are required; only explicit cosmetics may be optional."""
     try:
         par = getattr(target.par, name)
         if expr is not None: par.expr = expr
         else: par.val = value
     except Exception as error:
+        if not optional:
+            raise RuntimeError(f'Required parameter {target.path}.{name}: {error}') from error
         WARNINGS.append(f'{target.path}.{name}: {error}')
 
 root = op('/project1')
@@ -136,8 +138,8 @@ status = panel.create(textCOMP,'status')
 status.par.x=16; status.par.y=640; status.par.w=300; status.par.h=64
 status.par.text = 'ESPERANDO'
 status.par.fontsize = 20
-setpar(status, 'bgalpha', 1)
-setpar(status, 'fontcolorr', 1); setpar(status, 'fontcolorg', 1); setpar(status, 'fontcolorb', 1)
+setpar(status, 'bgalpha', 1, optional=True)
+setpar(status, 'fontcolorr', 1, optional=True); setpar(status, 'fontcolorg', 1, optional=True); setpar(status, 'fontcolorb', 1, optional=True)
 info = panel.create(textCOMP,'info')
 info.par.x=16; info.par.y=24; info.par.w=300; info.par.h=600
 info.par.text = 'META RAY-BAN / OSC LAB'
@@ -317,14 +319,23 @@ for pane in ui.panes:
     if pane.type == PaneType.NETWORKEDITOR:
         pane.owner = root
         if callable(getattr(pane, 'home', None)): pane.home()
+# Force outputs and examples to evaluate before replacing any distributed artifact.
+for item in (base.op('OUT_CONTROLS'), base.op('OUT_POINTS'), base.op('OUT_PREVIEW'),
+             easy.op('out'), instancing.op('out')):
+    item.cook(force=True)
+problems = [n.path+' '+str(n.errors()) for c in (base, easy, instancing)
+            for n in [c] + list(c.findChildren()) if n.errors()]
+(SRC/'build_report.txt').write_text('\n'.join(problems + ['WARNING ' + w for w in WARNINGS]) or 'No operator errors at build time')
+if problems:
+    raise RuntimeError('Build failed; existing TOE/TOX files were not replaced: ' + '; '.join(problems))
 EXAMPLES.mkdir(exist_ok=True)
 easy.save(str(EXAMPLES/'RayBan_Easy_CHOPs.tox'))
 instancing.save(str(EXAMPLES/'RayBan_Points_Instancing.tox'))
 # The reusable .tox stays quiet inside other projects; only the example project opens the monitor.
 base.par.Openmonitor = False
-base.save(str(OUT/'RayBan_OSC.tox'))
-base.par.Openmonitor = True
+try:
+    base.save(str(OUT/'RayBan_OSC.tox'))
+finally:
+    base.par.Openmonitor = True
 project.save(str(OUT/'RayBan_MediaPipe_OSC.toe'))
-problems = [n.path+' '+str(n.errors()) for c in (base, easy, instancing) for n in c.findChildren() if n.errors()]
-(SRC/'build_report.txt').write_text('\n'.join(problems + ['WARNING ' + w for w in WARNINGS]) or 'No operator errors at build time')
 print('SAVED', str(OUT/'RayBan_MediaPipe_OSC.toe'))

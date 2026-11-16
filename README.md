@@ -250,8 +250,18 @@ xcodebuild \
   -only-testing:mediapipe-iosUITests test
 
 # Standalone TouchDesigner receiver/parser tests; TouchDesigner need not be open.
-python3 -m unittest discover -s TouchDesigner -p 'test_*.py' -v
+python3 -B -m unittest discover -s TouchDesigner/dev -p 'test_*.py' -v
+
+# Offline verification of all 12 model hashes and pinned dependency lockfiles.
+python3 -B mediapipe-ios/Scripts/validate_resources.py
+python3 -B -m unittest discover -s mediapipe-ios/Scripts -p 'test_*.py' -v
+
+# Inspect an existing Release build (macOS/Xcode required).
+python3 -B mediapipe-ios/Scripts/validate_resources.py \
+  --release-app /absolute/path/to/Release-iphonesimulator/mediapipe-ios.app
 ```
+
+The [validation workflow](.github/workflows/validate.yml) runs the portable Python tests and resource checks on pushes and pull requests. Its iOS job runs only when dispatched manually and requires the runner’s selected Xcode to be 27.1 or newer; it fails preflight when that compiler is unavailable, so a successful manual run requires the iOS checks to execute. With a compatible runner, it runs signed, serial simulator suites and checks a Release simulator bundle for model hashes, test fixtures and mock SDK dependencies. The Release checker reports Developer Mode configuration separately; passing it does not establish production registration or device distribution signing.
 
 **Keep normal simulator signing enabled for runtime DAT tests.** With Xcode 27.1 and the simulator, an unsigned host app fails DAT initialization (`Wearables.configure()` returns `.internalError`). `CODE_SIGNING_ALLOWED=NO` is appropriate only for the compile check above.
 

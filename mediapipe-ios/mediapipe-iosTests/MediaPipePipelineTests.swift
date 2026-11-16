@@ -99,4 +99,29 @@ final class MediaPipePipelineTests: XCTestCase {
       }
     }
   }
+
+  func testBackgroundSegmentationPreservesOSCWithoutBuildingPreview() async throws {
+    let image = try XCTUnwrap(UIImage(contentsOfFile: try fixtureURL("plant", extension: "png").path))
+    let analyzer = MediaPipeVisionAnalyzer()
+    defer { analyzer.reset() }
+    for task in [MediaPipeVisionTask.imageSegmentation, .interactiveSegmentation] {
+      let path = try XCTUnwrap(task.bundledModelPath)
+      let _: Void = try await callbackValue("Configure segmentation") { completion in
+        analyzer.configure(task: task, modelPath: path, completion: completion)
+      }
+      let foreground: VisionAnalysisResult = try await callbackValue("Foreground segmentation") { completion in
+        analyzer.submit(image: image, interactionPoint: CGPoint(x: 0.5, y: 0.5), completion: completion)
+      }
+      let background: VisionAnalysisResult = try await callbackValue("Background segmentation") { completion in
+        analyzer.submit(image: image, interactionPoint: CGPoint(x: 0.5, y: 0.5), makePreview: false,
+          completion: completion)
+      }
+      XCTAssertNotNil(foreground.maskImage)
+      XCTAssertNil(background.maskImage)
+      XCTAssertEqual(background.resultCount, foreground.resultCount)
+      XCTAssertEqual(background.summary, foreground.summary)
+      XCTAssertEqual(background.oscMessages.map(\.address), foreground.oscMessages.map(\.address))
+      XCTAssertEqual(background.oscMessages.map(\.arguments), foreground.oscMessages.map(\.arguments))
+    }
+  }
 }

@@ -33,6 +33,9 @@ def packets(frame, messages):
     packet = base
     for address, args in messages:
         data = element(message(address, args))
+        # Match OSCMessage.packets: a single oversized message is dropped.
+        if len(base) + len(data) > 1200:
+            continue
         if len(packet) + len(data) > 1200:
             yield packet
             packet = base

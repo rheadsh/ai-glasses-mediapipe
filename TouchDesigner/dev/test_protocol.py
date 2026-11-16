@@ -128,6 +128,177 @@ class ReceiverTests(unittest.TestCase):
         half = smooth.apply(live,0.5,0.5)['presence']
         self.assertAlmostEqual(half,1-2.718281828**-1,places=5)
 
+    def test_malformed_packet_never_mutates_published_snapshot(self):
+        self.send(1, 'objectDetection')
+        snapshot = self.r.current
+        box = list(snapshot['detections'][0])
+        version, received = self.r.version, self.r.last_result
+        self.r.receive('/mediapipe/objectDetection/detection/0', ['broken', .4])
+        self.assertEqual(self.r.invalid, 1)
+        self.assertEqual(snapshot['detections'][0], box)
+        self.assertIs(self.r.current, snapshot)
+        self.assertEqual((self.r.version, self.r.last_result), (version, received))
+
+    def test_invalid_chunks_are_atomic_and_indices_are_bounded(self):
+        self.r.receive('/mediapipe/frame', [1])
+        root = '/mediapipe/faceLandmarkDetection'
+        self.r.receive(root+'/landmarks/0/count', [2])
+        self.r.receive(root+'/landmarks/0/points', [0, .1, .2])
+        for path, args in [('/landmarks/0/points', [1, .3, float('nan')]),
+                           ('/landmarks/0/count', [-1]),
+                           ('/landmarks/0/points', [1999, .1, .2, .3, .4]),
+                           ('/landmarks/-1/count', [1]),
+                           ('/landmarks/2000/count', [1]),
+                           ('/embedding/values', [8191, .1, .2]),
+                           ('/category/-1', ['bad', .9]),
+                           ('/hand/2000/handedness', ['Right', .9])]:
+            self.r.receive(root+path, args)
+        group = self.r.frames['faceLandmarkDetection']['groups'][0]
+        self.assertEqual(group, dict(count=2, points={0: (.1, .2)}, label=''))
+        self.assertEqual(self.r.invalid, 8)
+        self.r.receive(root+'/counts', [1, 0, 1])
+        self.r.receive(root+'/inferenceMs', [1.0])
+        self.assertIsNone(self.r.current)
+        self.r.receive(root+'/landmarks/0/points', [1, .3, .4])
+        self.assertEqual(len(points(self.r.current)), 2)
+
+    def test_counts_prune_extras_received_before_and_after_metadata(self):
+        self.r.receive('/mediapipe/frame', [1])
+        root = '/mediapipe/objectDetection'
+        for index in range(3000):
+            self.r.receive(root+'/detection/'+str(index), ['cup', .5, 0, 0, .1, .1])
+        self.assertEqual(len(self.r.frames['objectDetection']['detections']), 2000)
+        self.r.receive(root+'/counts', [1, 1, 0])
+        self.r.receive(root+'/detection/100', ['extra', .9, 0, 0, .1, .1])
+        self.assertEqual(set(self.r.frames['objectDetection']['detections']), {0})
+        self.r.receive(root+'/inferenceMs', [1.0])
+        self.assertEqual(set(self.r.current['detections']), {0})
+
+    def test_reordered_chunks_before_counts_complete_same_frame(self):
+        self.r.receive('/mediapipe/frame', [1])
+        root = '/mediapipe/faceLandmarkDetection'
+        for path, args in [('/landmarks/0/points', [1, .3, .4, .8, .9]),
+                           ('/landmarks/1/count', [1]),
+                           ('/landmarks/0/label', ['face']),
+                           ('/landmarks/0/count', [2]),
+                           ('/counts', [1, 0, 1]), ('/inferenceMs', [1.0])]:
+            self.r.receive(root+path, args)
+        self.assertIsNone(self.r.current)
+        self.r.receive('/mediapipe/frame', [1])  # another bundle for this frame
+        self.r.receive(root+'/landmarks/0/points', [0, .1, .2])
+        snapshot = self.r.current
+        self.assertEqual(set(snapshot['groups']), {0})
+        self.assertEqual(set(snapshot['groups'][0]['points']), {0, 1})
+        self.now = .5
+        version = self.r.version
+        self.r.receive(root+'/landmarks/0/points', [0, .9, .9])
+        self.assertEqual(snapshot['groups'][0]['points'][0], (.1, .2))
+        self.assertEqual(self.r.version, version)
+        self.assertEqual(self.r.last_result, 0)
+
+    def test_expired_and_stopped_frames_cannot_be_resurrected(self):
+        self.send(1, 'objectDetection')
+        self.now = .7
+        self.r.receive('/mediapipe/test', ['keep source'])
+        self.now = 1.1
+        self.r.tick()
+        self.send(1, 'objectDetection')
+        self.assertIsNone(self.r.current)
+        self.send(2, 'objectDetection')
+        self.assertEqual(self.r.current['frame'], 2)
+        self.r.receive('/mediapipe/objectDetection/active', [0])
+        self.send(2, 'objectDetection')
+        self.assertIsNone(self.r.current)
+        self.send(3, 'objectDetection')
+        self.assertEqual(self.r.current['frame'], 3)
+
+    def test_embedding_reordering_trims_extras_and_bad_dimensions_roll_back(self):
+        self.r.receive('/mediapipe/frame', [1])
+        root = '/mediapipe/imageEmbedding'
+        self.r.receive(root+'/embedding/values', [1, .2, .3, .4])
+        self.r.receive(root+'/embedding/dimensions', [3])
+        self.r.receive(root+'/embedding/dimensions', [-1])
+        self.assertEqual(self.r.frames['imageEmbedding']['embedding_size'], 3)
+        self.r.receive(root+'/counts', [1, 0, 0])
+        self.r.receive(root+'/inferenceMs', [1.0])
+        self.assertIsNone(self.r.current)
+        self.r.receive(root+'/embedding/values', [0, .1])
+        self.assertEqual(self.r.current['embedding'], {0: .1, 1: .2, 2: .3})
+
+    def test_total_staged_landmark_budget_is_bounded(self):
+        self.r.receive('/mediapipe/frame', [1])
+        root = '/mediapipe/holisticLandmarkDetection'
+        for group in range(5):
+            self.r.receive(root+'/landmarks/'+str(group)+'/points', [0]+[.5]*4000)
+        frame = self.r.frames['holisticLandmarkDetection']
+        self.assertEqual(sum(len(g['points']) for g in frame['groups'].values()), 8000)
+        self.assertNotIn(4, frame['groups'])
+        self.assertEqual(self.r.invalid, 1)
+
+    def test_first_score_uses_protocol_index_not_arrival_order(self):
+        for task, route, counts in [('objectDetection', 'detection', [2, 2, 0]),
+                                    ('imageClassification', 'category', [2, 0, 0])]:
+            self.r = ReceiverState(clock=lambda: self.now)
+            self.r.receive('/mediapipe/frame', [1])
+            root = '/mediapipe/'+task
+            self.r.receive(root+'/counts', counts)
+            self.r.receive(root+'/inferenceMs', [1.0])
+            for index, score in [(1, .2), (0, .9)]:
+                args = ['label', score] + ([0, 0, .1, .1] if route == 'detection' else [])
+                self.r.receive(root+'/'+route+'/'+str(index), args)
+            self.assertEqual(controls(self.r.current)['first_score'], .9)
+
+    def test_hold_survives_empty_live_frames_and_unrelated_tasks(self):
+        self.send(1, 'handLandmarkDetection')
+        f = OutputFilter()
+        live = f.apply(controls(self.r.current), 0, hold=True)
+        self.r.receive('/mediapipe/frame', [2])
+        root = '/mediapipe/handLandmarkDetection'
+        self.r.receive(root+'/counts', [0, 0, 0])
+        self.r.receive(root+'/inferenceMs', [1.0])
+        empty = f.apply(controls(self.r.current), 1, hold=True)
+        self.assertEqual((empty['active'], empty['point_found'], empty['present']), (1, 0, 0))
+        for key in ('point_x', 'point_y', 'hand_x', 'hand_y', 'pinch_distance'):
+            self.assertEqual(empty[key], live[key])
+        self.send(3, 'objectDetection')
+        unrelated = f.apply(controls(self.r.current), 1, hold=True)
+        self.assertEqual(unrelated['hand_x'], live['hand_x'])
+        self.assertEqual(f.apply(controls(None), 1, hold=True)['point_x'], live['point_x'])
+
+    def test_frame_markers_require_one_positive_int32(self):
+        self.send(10, 'objectDetection')
+        snapshot = self.r.current
+        for args in ([], [11, 12], [0], [-1], [2147483648], [11.5], ['11'], [True]):
+            self.r.receive('/mediapipe/frame', args)
+            self.assertIsNone(self.r.context)
+            self.assertEqual(self.r.last_frame, 10)
+            self.assertIs(self.r.current, snapshot)
+        self.assertEqual(self.r.invalid, 8)
+        self.send(11, 'objectDetection')
+        self.assertEqual(self.r.current['frame'], 11)
+
+    def test_metadata_arity_and_labels_are_validated_before_state_changes(self):
+        self.r.receive('/mediapipe/frame', [1])
+        root = '/mediapipe/faceLandmarkDetection'
+        self.r.receive(root+'/landmarks/0/count', [2])
+        self.r.receive(root+'/landmarks/0/points', [0, .1, .2])
+        assembly = self.r.frames['faceLandmarkDetection']
+        for path, args in [('/counts', [1, 0, 1, 999]), ('/inferenceMs', [1, 2]),
+                           ('/landmarks/0/count', [1, 2]),
+                           ('/landmarks/0/label', ['face', 'extra']),
+                           ('/landmarks/0/label', ['x'*1025]),
+                           ('/landmarks/0/label', [123]),
+                           ('/embedding/dimensions', [3, 4]),
+                           ('/mask/size', [16, 16, 16]),
+                           ('/mask/coverage', [.1, .2]),
+                           ('/active', [0, 1]), ('/active', [2]),
+                           ('/category/0', ['label', .9, 99]),
+                           ('/hand/0/handedness', ['Right', .9, 99])]:
+            self.r.receive(root+path, args)
+            self.assertIs(self.r.frames['faceLandmarkDetection'], assembly)
+        self.assertEqual(self.r.invalid, 13)
+        self.assertEqual(assembly['groups'][0], dict(count=2, points={0: (.1, .2)}, label=''))
+
     def test_standalone_demo_uses_the_receiver_task_names(self):
         self.assertEqual(DEMO_TASKS,TASKS)
 

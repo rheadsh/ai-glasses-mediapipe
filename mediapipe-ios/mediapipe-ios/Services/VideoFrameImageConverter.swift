@@ -17,11 +17,23 @@ final class VideoFrameImageConverter: @unchecked Sendable {
   deinit { invalidateSession() }
 
   func image(from sampleBuffer: CMSampleBuffer) -> UIImage? {
-    if let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
-      return Self.image(from: pixelBuffer)
-    }
-    guard let pixelBuffer = decode(sampleBuffer) else { return nil }
+    guard let pixelBuffer = pixelBuffer(from: sampleBuffer) else { return nil }
     return Self.image(from: pixelBuffer)
+  }
+
+  /// Decode every sample in stream order before dropping presentation work. HEVC delta
+  /// samples may reference a previous sample even when its preview was not displayed.
+  func pixelBuffer(
+    from sampleBuffer: CMSampleBuffer,
+    acceptingDecodedFrame: () -> Bool = { true }
+  ) -> CVPixelBuffer? {
+    guard let pixels = CMSampleBufferGetImageBuffer(sampleBuffer) ?? decode(sampleBuffer) else {
+      return nil
+    }
+    // Claim the presentation slot only after decoding: rejected HEVC reference frames
+    // must still update the decompression session for later accepted frames.
+    guard acceptingDecodedFrame() else { return nil }
+    return pixels
   }
 
   private func decode(_ sampleBuffer: CMSampleBuffer) -> CVPixelBuffer? {
@@ -77,7 +89,7 @@ final class VideoFrameImageConverter: @unchecked Sendable {
     sessionFormat = nil
   }
 
-  private static func image(from pixelBuffer: CVPixelBuffer) -> UIImage? {
+  static func image(from pixelBuffer: CVPixelBuffer) -> UIImage? {
     var cgImage: CGImage?
     guard VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &cgImage) == noErr,
       let cgImage
