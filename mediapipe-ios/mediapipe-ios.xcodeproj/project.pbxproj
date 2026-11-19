@@ -648,7 +648,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
-				DEVELOPMENT_TEAM = 2R3W68834M;
+				DEVELOPMENT_TEAM = K2SGHV66QP;
 				ENABLE_PREVIEWS = YES;
 				FRAMEWORK_SEARCH_PATHS = "$(inherited)";
 				INFOPLIST_FILE = "mediapipe-ios/Info.plist";
@@ -681,9 +681,14 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
-				DEVELOPMENT_TEAM = 2R3W68834M;
+				DEVELOPMENT_TEAM = K2SGHV66QP;
 				ENABLE_PREVIEWS = YES;
-				EXCLUDED_SOURCE_FILE_NAMES = "$(inherited) MWDATMockDevice* plant.png plant.mp4";
+				EXCLUDED_SOURCE_FILE_NAMES = (
+					"$(inherited)",
+					"MWDATMockDevice*",
+					plant.png,
+					plant.mp4,
+				);
 				INFOPLIST_FILE = "mediapipe-ios/Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
 				LD_RUNPATH_SEARCH_PATHS = (

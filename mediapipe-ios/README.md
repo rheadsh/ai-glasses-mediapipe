@@ -1,167 +1,48 @@
-# mediapipe-ios
+# App iOS
 
-A SwiftUI iOS app that receives first-person video from Meta Ray-Ban glasses through the Device Access Toolkit (DAT) and runs MediaPipe Vision Tasks locally on the device.
+La app recibe video de los lentes Meta Ray-Ban, ejecuta MediaPipe en el iPhone y muestra los resultados sobre la vista previa. Puedes cambiar de tarea durante la transmisión y capturar fotos.
 
-The app UI is in Spanish. Labels are shown here in English with the Spanish label in parentheses.
+## Instalar
 
-## What it includes
+Necesitas iOS 17.2 o posterior, Ruby y Bundler. El proyecto se validó con Xcode 27.1 y usa Meta Wearables DAT 1.0.1 y MediaPipeTasksVision 0.10.35.
 
-- Registration and permissions through the Meta AI app.
-- Camera session and stream with `MWDATCore` and `MWDATCamera` 1.0.1.
-- All 11 on-device Vision Tasks from `MediaPipeTasksVision` 0.10.35.
-- Live switching between:
-  - **EfficientDet Lite0**: lower latency.
-  - **EfficientDet Lite2**: higher accuracy.
-- A menu with the 11 Vision Tasks that MediaPipe Tasks exposes for iOS:
-  Object Detection, Image Classification, Image Segmentation, Interactive Segmentation,
-  Gesture Recognition, Hand Landmark Detection, Image Embedding, Face Detection,
-  Face Landmark Detection, Pose Landmark Detection, and Holistic Landmark Detection.
-- Official models pinned by SHA-256 for every task.
-- Boxes, masks, landmarks, classification, gestures, embeddings, latency, and a frame counter drawn over the preview.
-- A single active model: switching tasks releases the previous runtime before creating the next one.
-- Back pressure: if MediaPipe is still busy, the new frame is dropped instead of queueing work.
-- Optional locked-screen mode: compressed HEVC stream, CPU decoding, and no preview work in the background, so analysis and OSC can keep running with the iPhone locked.
-- Light and dark appearance support.
-- Photo capture and `MWDATMockDevice` support in Debug builds. Release excludes the mock framework and the bundled photo/video fixtures while keeping all pinned inference models.
-
-## Architecture
-
-```text
-Meta Ray-Ban
-    │ DAT camera stream
-    ▼
-MWDATCamera.VideoFrame
-    ├──► UIImage ──► SwiftUI preview
-    └──► serial inference queue ──► MediaPipeVisionAnalyzer
-                                      │ one Runtime
-                                      ▼
-                        boxes / masks / landmarks / text
-                                      │
-                                      ▼
-                               SwiftUI overlay
-```
-
-Frames are converted off the main actor. Raw frames may be dropped before conversion; compressed HEVC samples are always decoded in stream order before preview/inference delivery is dropped, preserving reference frames. With the default `raw` codec DAT converts them (`makeUIImage()`); in locked-screen mode `VideoFrameImageConverter` decodes the compressed HEVC samples on the CPU with VideoToolbox.
-
-`StreamSessionViewModel` coordinates the session and the observable state. `MediaPipeVisionAnalyzer` wraps the Tasks, runs everything on a serial queue, and keeps exactly one runtime. `DetectionGeometry` keeps the conversion between model coordinates and the `aspectFill` preview separate and testable.
-
-## Requirements
-
-- macOS with an Xcode and Swift compiler compatible with the project (validated with Xcode 27.1).
-- iOS 17.2 or later (required by DAT 1.0.1).
-- Ruby and Bundler, to install the CocoaPods version pinned in `Gemfile`.
-- For real hardware: the Meta AI app, Developer Mode, and compatible glasses.
-- For the simulator: `MWDATMockDevice`, included in Debug builds.
-
-MediaPipe Tasks is integrated through CocoaPods and DAT through Swift Package Manager. Always open the workspace so both dependencies load.
-
-## Setup
-
-From this directory:
+Desde `mediapipe-ios/`, instala las dependencias y verifica los modelos incluidos por SHA-256.
 
 ```bash
-# Install the pinned CocoaPods version
 bundle install
-
-# Verify or recover every official model pinned by SHA-256
 ./Scripts/download_models.sh
-
-# Generate the workspace and resolve MediaPipe
 bundle exec pod install
-
-# Always open the workspace, not the .xcodeproj
 open mediapipe-ios.xcworkspace
 ```
 
-The models ship in `mediapipe-ios/Models` so inference works without a network connection. The script only accepts binaries whose hashes match the pinned versions. It is a setup step: the app never downloads models at runtime.
+Abre siempre el workspace para cargar MediaPipe desde CocoaPods. Selecciona el esquema `mediapipe-ios` y, para compilar en un iPhone, configura tu equipo en **Signing & Capabilities**.
 
-## DAT configuration
+## Conectar los lentes
 
-`mediapipe-ios/Info.plist` already contains:
+1. Empareja los lentes en Meta AI y activa **Developer Mode**. La configuración incluida usa `META_APP_ID = 0` para este modo.
+2. En la app, toca **Conectar mis lentes**, completa el registro y concede acceso a la cámara.
+3. Toca **Iniciar stream y análisis** y elige una tarea. Para segmentación interactiva, toca el objeto en la vista previa.
 
-- the `mediapipe-ios://` callback;
-- the `com.meta.ar.wearable` protocol;
-- Bluetooth and external-accessory background modes;
-- the `fb-viewapp` allowlist;
-- Bluetooth, local network, camera, and photo library usage descriptions.
+Activa **Pantalla bloqueada** antes de iniciar si quieres mantener el análisis y OSC con el iPhone bloqueado. Este modo usa HEVC y detiene la actualización de la vista previa en segundo plano.
 
-This app intentionally stays in DAT Developer Mode; no separate Meta app registration is required for this setup. Debug and Release both use `META_APP_ID = 0`, the bundle ID `com.rheadsh.mediapipe-ios`, and the original developer's team, which works for Developer Mode only. Developer Mode is preserved in Release as well. If you later choose registered distribution, or build with a different team, replace `META_APP_ID`, `CLIENT_TOKEN`, the bundle identifier, and the Team ID with the values from your project in the Wearables Developer Center and Signing & Capabilities.
+Para probar sin lentes, abre el menú Debug, empareja unos lentes con MockDeviceKit, enciéndelos, despliégalos, simula que los llevas puestos y configura una fuente de cámara.
 
-## Usage
+## Enviar OSC
 
-1. Enable Developer Mode for the glasses in Meta AI.
-2. Open the app and tap **Connect my glasses** (`Conectar mis lentes`).
-3. With the glasses active, tap **Start stream and analysis** (`Iniciar stream y análisis`).
-4. Use the model picker before streaming, or the `cpu` button while streaming, to choose EfficientDet Lite0 or Lite2.
-5. Use the **Vision task** picker, or the grid button while streaming, to change tasks.
-6. In **Interactive segmentation**, tap the object in the preview that you want to segment.
-7. Use the viewfinder button to pause or resume MediaPipe without stopping the stream.
-8. Use the camera button to capture a photo and **Stop streaming** to end the session.
-9. To keep running with the iPhone locked, turn on **Locked screen** (`Pantalla bloqueada`) *before* starting the stream; it cannot change while streaming. See below.
+Conecta el iPhone y el receptor a la misma red. En **Configurar OSC**, introduce la IP local y el puerto del receptor, habilita **Enviar tracking por OSC** y toca **Aplicar**. Vuelve a abrir la configuración y toca **Enviar prueba /mediapipe/test**. Concede acceso a la red local si iOS lo solicita.
 
-Switching tasks invalidates pending results, releases the previous model, and prepares a single new instance on the inference queue while the DAT stream stays up.
+La app guarda el destino y la frecuencia. Debes activar el envío cada vez que abras la app. Consulta el [protocolo OSC](OSC.md) o el [ejemplo de TouchDesigner](../TouchDesigner/README.md).
 
-## Locked-screen mode
+## Ejecutar las pruebas
 
-DAT pauses `VideoCodec.raw` streams when the app goes to the background. With **Locked screen** on, the app streams compressed HEVC (`VideoCodec.hvc1`), which DAT keeps delivering in the background, decodes it with `VideoFrameImageConverter` (CPU only, since the GPU is not available), stops refreshing the preview while the app is not active, and keeps running MediaPipe and OSC. The Bluetooth and external-accessory background modes in `Info.plist` keep the app alive while the glasses stream.
-
-- DAT can report `Critical error, the stream should end` (`StreamError.videoStreamingError`) when the phone locks or the app returns. The app judges by frames: if they keep arriving it shows nothing; if they stop for a full supervision window it ends the stream, clears OSC, and shows the error. Supervision continues after healthy windows; temporary DAT pauses suspend it and receive a new grace window on resume. Other errors are always shown. Every DAT error is logged (`[mediapipe-ios] DAT stream error: ...`).
-- The app also asks iOS for extra background time when it leaves the foreground while streaming in this mode.
-- iOS can still suspend the app (memory, battery saver, thermal state). Inference runs on the CPU only and can be slower than in the foreground.
-- Verified with MockDeviceKit, real HEVC samples, and real glasses with a locked iPhone. Re-check it on the hardware and iOS version you will use in an installation.
-
-## Build and test
+Desde `mediapipe-ios/`, elige un simulador instalado con `xcrun simctl list devices available`.
 
 ```bash
-xcodebuild \
-  -workspace mediapipe-ios.xcworkspace \
-  -scheme mediapipe-ios \
-  -destination 'generic/platform=iOS Simulator' \
-  CODE_SIGNING_ALLOWED=NO \
-  build
-
-xcodebuild test \
-  -workspace mediapipe-ios.xcworkspace \
+xcodebuild test -workspace mediapipe-ios.xcworkspace \
   -scheme mediapipe-ios \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
   -parallel-testing-enabled NO \
   -only-testing:mediapipe-iosTests
 ```
 
-Choose an installed simulator with `xcrun simctl list devices available`. **Do not add `CODE_SIGNING_ALLOWED=NO` when running DAT tests**: the host app needs the simulator's normal signing to initialize the SDK. The unsigned build above only checks that the project compiles.
-
-The tests are split by responsibility:
-
-- `DetectionGeometryTests`: normalization, clipping, and preview coordinates.
-- `MediaPipePipelineTests`: model catalog, real models for all 11 tasks, and their OSC data.
-- `OSCEncodingTests`: packet format, chunking, frame IDs, and mappings.
-- `OSCOutputIntegrationTests`: isolated persistent destination and loopback UDP receipt, including the clear message.
-- `DATStreamingIntegrationTests`: streaming and photo capture with MockDeviceKit 1.0.1, including the compressed stream, background behavior, and DAT video errors.
-- `VideoFrameImageConverterTests`: pixel-buffer and real HEVC decoding without the GPU.
-
-DAT uses global state, so the suite runs its tests serially, waits for states with a timeout, and uses `await MockDeviceKit.shared.disable()` to finish cleanup.
-
-For the UI flows (registration, streaming, photo capture, selection, device availability, OSC settings, and light/dark appearance), use the same command with `-only-testing:mediapipe-iosUITests`. The app launches with `--ui-testing`, uses a unique port file per test, disables inference, and keeps the first frame in the preview with `--freeze-preview-for-ui-testing` during control automation. The native stream stays active; the streaming and inference tests do not use that flag.
-
-## OSC output
-
-All 11 Vision Tasks can send their results over OSC/UDP to interactive installations. Use **Configure OSC** (`Configurar OSC`) to set the IP, port, and rate, enable sending, and test the receiver. See [OSC.md](OSC.md) for routes, arguments, and receiver setup examples.
-
-## Performance
-
-- The stream requests low resolution (`360 × 640`) at 24 FPS to balance Bluetooth and CPU load.
-- MediaPipe runs one inference at a time on a `userInitiated` queue.
-- Lite0 is the default for real-time use; Lite2 can be slower, especially in the simulator.
-- The UI receives only finished results, delivered through the `MainActor`.
-- Frame conversion runs off the main actor and frames are dropped while the previous one is still being handled.
-- The preview is not refreshed and segmentation preview masks are not generated while the app is not active. Task results and OSC payloads are preserved.
-- OSC tracking-message construction, encoding, and network submission run off the main actor.
-- Model requests superseded before loading begins are discarded.
-
-## References
-
-- [MediaPipe iOS setup](https://developers.google.com/edge/mediapipe/solutions/setup_ios)
-- [MediaPipe Object Detector for iOS](https://developers.google.com/edge/mediapipe/solutions/vision/object_detector/ios)
-- [MediaPipe Framework for iOS](https://developers.google.com/edge/mediapipe/framework/getting_started/ios)
-- [Meta Wearables DAT](https://wearables.developer.meta.com/docs/develop/)
-- [Meta Wearables DAT iOS](https://github.com/facebook/meta-wearables-dat-ios)
+Mantén la firma normal del simulador para que DAT pueda inicializarse. Para las pruebas de interfaz, usa `-only-testing:mediapipe-iosUITests`. Consulta [AGENTS.md](../AGENTS.md) para los comandos de compilación y las pautas de desarrollo.
